@@ -163,3 +163,49 @@ def next_power_of_2(n):
     """
     return 2**(n-1).bit_length()
 
+
+def correlation(trace1, trace2, t, maxlag=1000, plot=False):
+  """
+      This function computes the correlation function of trace1 and trace2 as a function of time.
+      The maximum time shift, maxlag, is the maximum number of index values by which the two discrete time series
+      are shifted with respect to each other. If we only want to determine differential traveltimes, maxlag
+      can be chosen pretty small.
+  """
+
+
+  import numpy as np
+  import matplotlib.pylab as plt
+
+
+
+  #- Initialisations. -------------------------------------------------------------------------
+
+  time_index=np.arange(-maxlag,maxlag+1)
+  tcc=time_index*(t[1]-t[0])
+  cc=np.zeros(len(tcc))
+
+  nt=len(t)
+
+  #- Compute correlation function. ------------------------------------------------------------
+
+  for k in time_index:
+    if k>0:
+      cc[k+maxlag]=np.sum(trace1[k:nt]*trace2[0:nt-k])
+    else:
+      cc[k+maxlag]=np.sum(trace1[0:nt+k]*trace2[-k:nt])
+
+  #- Differential travel time -----------------------------------------------------------------
+
+  ind_max = np.where( cc == np.max(cc) )[0][0]
+  deltat  = np.abs(tcc[ind_max])
+
+  #- Plot if wanted. --------------------------------------------------------------------------
+
+  if plot==True:
+    plt.plot(tcc,cc)
+    plt.show()
+
+  #- Return output. ---------------------------------------------------------------------------
+
+  return cc, tcc, deltat
+

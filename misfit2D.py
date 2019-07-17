@@ -10,17 +10,15 @@
 
 import sys
 sys.path.append('/Users/flomin/Desktop/thesis/MyScripts/python/modules')
-import functions as fnc
 import matplotlib.pyplot as plt
 import numpy as np
 import ipdb as db
-import wiggle as wig
-from plot_tf import plot_tf
 import pickle
-from sem2d import sem2dpack,tf_error
+from sem2d import sem2dpack
 from tf_misfit import *
 from obspy.imaging.cm import obspy_divergent, obspy_sequential
 import multiprocessing as mp
+from util_sys import *
 
 def read_fd(filename,niter,nsurf):
   with open(filename,'r') as fd:
@@ -164,7 +162,8 @@ def plt_misfit(st1, st2, dt=0.01, t0=0., fmin=1., fmax=10., nf=100, w0=6,
     figs = []
 
     for itr in np.arange(ntr):
-        fig = plt.figure(figsize=(9,7))
+        set_rcParams()
+        fig = plt.figure(figsize=(13,9))
 
         # plot signals
         ax_sig = fig.add_axes([left + w_1, bottom + h_2 + h_3+0.003, w_2, h_1])
@@ -191,6 +190,7 @@ def plt_misfit(st1, st2, dt=0.01, t0=0., fmin=1., fmax=10., nf=100, w0=6,
         ax_fem = fig.add_axes([left, bottom + h_1 + 2 * h_2 + h_3, w_1, h_3])
         ax_fem.semilogy(_fem[itr], f, plot_args[2])
         ax_fem.set_ylim(fmin, fmax)
+        ax_fem.tick_params(axis='both',color='black',labelsize=10,labelcolor='black')
 
         # plot TPM
         ax_tpm = fig.add_axes([left + w_1, bottom, w_2, h_2])
@@ -214,6 +214,7 @@ def plt_misfit(st1, st2, dt=0.01, t0=0., fmin=1., fmax=10., nf=100, w0=6,
         ax_fpm = fig.add_axes([left, bottom + h_2, w_1, h_3])
         ax_fpm.semilogy(_fpm[itr], f, plot_args[2])
         ax_fpm.set_ylim(fmin, fmax)
+        ax_fpm.tick_params(axis='both',color='black',labelsize=10,labelcolor='black')
 
         # set limits
         ylim_sig = np.max([np.abs(st1).max(), np.abs(st2).max()]) * 1.1
@@ -245,9 +246,9 @@ def plt_misfit(st1, st2, dt=0.01, t0=0., fmin=1., fmax=10., nf=100, w0=6,
                     verticalalignment='center', horizontalalignment='left',
                     bbox=props)
 
-        ax_tpm.set_xlabel('time')
-        ax_fem.set_ylabel('frequency')
-        ax_fpm.set_ylabel('frequency')
+        ax_tpm.set_xlabel('Time (s)',color='k',fontsize='14')
+        ax_fem.set_ylabel('Frequency (Hz)',color='k',fontsize='14')
+        ax_fpm.set_ylabel('Frequency (Hz)',color='k',fontsize='14')
 
         # add text boxes
         props = dict(boxstyle='round', facecolor='white', alpha=0.5)
@@ -270,7 +271,7 @@ def plt_misfit(st1, st2, dt=0.01, t0=0., fmin=1., fmax=10., nf=100, w0=6,
                     verticalalignment='top', horizontalalignment='right',
                     bbox=props)
 
-        fig.suptitle('Envelope (top) and Phase (bottom) Misfits',fontsize=16)
+        fig.suptitle('Envelope (top) and Phase (bottom) Misfits',color='k',fontsize=16)
         # remove axis labels
         ax_tfpm.xaxis.set_major_formatter(NullFormatter())
         ax_tfem.xaxis.set_major_formatter(NullFormatter())
@@ -279,7 +280,8 @@ def plt_misfit(st1, st2, dt=0.01, t0=0., fmin=1., fmax=10., nf=100, w0=6,
         ax_tfpm.yaxis.set_major_formatter(NullFormatter())
         ax_tfem.yaxis.set_major_formatter(NullFormatter())
 
-        ax_sig.set_ylabel('velocity [$ms^{-1}$]',fontsize=10)
+
+        ax_sig.set_ylabel('Velocity [$ms^{-1}$]',color='k',fontsize=12)
         figs.append(fig)
 
     if show:
@@ -294,10 +296,9 @@ def plt_misfit(st1, st2, dt=0.01, t0=0., fmin=1., fmax=10., nf=100, w0=6,
 if __name__ == '__main__':
   # Directories
   #---------
-  sem_dir = '/Users/flomin/Desktop/thesis/simulations/Nice/layered/psvElast/'
-  fd_dir = "/Users/flomin/Desktop/thesis/simulations/other_results/elastFD/fsismos_x"
-  savedir = '/Users/flomin/Desktop/thesis/report/posters/posterRAP/image/'
-  savefile= savedir + 'mfelast.png'
+  sem_dir = '/Users/flomin/Desktop/thesis/simulations/Nice/plane_wave/visla_psv_15s/'
+  fd_dir = "/Users/flomin/Desktop/thesis/simulations/other_results/vislaFD/fsismos_x"
+  savefile = "/Users/flomin/Desktop/thesis/figures/sismoDiff/visla_sem_fd_misfit.png"
   nsurf, niter, dt, fmax = 420, 1500, 1e-2, 10
 
   sem_obj = sem2dpack(sem_dir)
@@ -306,9 +307,10 @@ if __name__ == '__main__':
   fd_sismo  = read_fd(fd_dir,niter,nsurf)
   fd_sismo = np.roll(fd_sismo,1,axis=0)
   xcoord = sem_obj.rcoord[:,0]
+  
   #FEM2D(sem_sismo,fd_sismo,dt,fmin=0.5,fmax=10,nf=100,w0=6,norm='global',option='TEM',savefile=savefile)
-  st1 = sem_sismo[:,200]
-  st2 = fd_sismo[:,200]
+  st1 = sem_sismo[:,210]
+  st2 = fd_sismo[:,210]
 
   plt_misfit(st1, st2, dt=0.01, t0=0., fmin=1., fmax=10., nf=100, w0=6,
                     norm='global', st2_isref=True, left=0.1, bottom=0.1,

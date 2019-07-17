@@ -7,8 +7,12 @@ Module to generate source time functions.
 
 import warnings
 import numpy as np
+import matplotlib.pyplot as plt
+import ipdb as db
+from obspy.signal.invsim import cosine_taper
+from houches_fb import *
 
-def ricker(f=10, length=0.5, dt=0.002, peak_loc=0.25, write=True, **kwargs):
+def ricker(f=10, length=0.5, dt=0.002, peak_loc=0.25, write=True,plot=True, **kwargs):
   """ricker creates a shifted causal ricker wavelet (Maxican hat).
     :param f: center frequency of Ricker wavelet (default 10)
     :param length: float
@@ -62,7 +66,23 @@ def ricker(f=10, length=0.5, dt=0.002, peak_loc=0.25, write=True, **kwargs):
 
     return y, t_out
 
-def gabor(f=10, length=0.5, dt=0.002, peak_loc=0.25, psi=np.pi/4, write=True, **kwargs):
+def plot_fft(y,t,plot=True):
+    dt = t[1] - t[0]
+    # FFT transform
+    nf   = int( len(y)/2 )
+    df   = (1/(2.0 * dt)) / nf
+    freq = np.arange(nf) * df
+
+    fft  = np.abs(np.fft.fft(y))[:nf]
+
+    if plot:
+      fig, ax = plt.subplots(1,2)
+      ax[0].plot(t,y)
+      ax[1].plot(freq,fft)
+      ax[1].set_xlim(0,50)
+      plt.show()
+
+def gabor(f=10, length=0.5, dt=0.002, peak_loc=0.25, write=True, **kwargs):
   """
   gabor creates a shifted causal gabor wavelet.
 
@@ -101,7 +121,7 @@ def gabor(f=10, length=0.5, dt=0.002, peak_loc=0.25, psi=np.pi/4, write=True, **
     if 'norm' in kwargs:
       A = kwargs["norm"]
     else: A = 1
-    y = A * np.cos( 2*np.pi*f*t + psi ) * np.exp( -1 * t**2 )
+    y = A * np.cos( 2*np.pi*f*t) * np.exp( -1 * t**2 )
 
     data = np.column_stack((t_out,y,np.zeros(y.shape)))
 
@@ -125,6 +145,128 @@ def gabor(f=10, length=0.5, dt=0.002, peak_loc=0.25, psi=np.pi/4, write=True, **
 
   return y ,  t_out
 
+
+def write(t,y,name):
+  data = np.column_stack((t,y,np.zeros(y.shape)))
+
+  filename = name
+  np.savetxt(filename,data,delimiter='\t',fmt='%10.6f %10.6f %10.6f')
+
+def gtrunc(pga, fn, dt, N, Ns):
+  #taper = 0.5 * ( 1 + np.cos(np.linspace(np.pi , 2 * np.pi, N-Ns)))
+  t = np.arange(N) * dt
+  a = np.zeros(N)
+  w = 2 * np.pi * fn
+  cos = np.cos(w * t[:-Ns] + np.pi/2)
+  sin = np.sin(w * t[:-Ns] + np.pi/2)
+  gauss = np.exp( -1 * w * t[:-Ns]**2 )
+  x = sin  * gauss #* cosine_taper(N-Ns,0.01)
+
+  #plt.figure()
+  #plt.plot(cos,'r')
+  #plt.plot(gauss,'b')
+  #plt.plot(x,'g')
+  #plt.plot(expo,'k')
+  #plt.show()
+
+  a[Ns:] = pga * (x / np.abs(x).max())
+
+  print(x.max(),x.min())
+  print(a.max(),a.min())
+
+  return t, a
+
+def fftd1(x, dt, pp, n):
+  nt = len(x)
+  x  = x - np.mean(x)
+  # Tapering the data
+
+  if pp > 0.0:
+    x = taper(x, pp)
+
+  # FFT
+  df = 1.0 / ((nt-1) * dt)
+  nf = nt // 2 + 1
+  s  = np.fft.fft(x)[:nf]
+  f  = np.arange( nf ) * df
+
+  # mulomega
+
+  w = 2.0 * np.pi * f * 1j
+  s = s * w**n
+
+  # IFFT
+
+  if np.remainder(nt,2) != 0: # odd
+    y = s[1:nf]
+  else:                       # even
+    y = s[1:nf-1]
+
+  y  = np.conj( y[::-1] )
+  zz = np.real(np.fft.ifft( np.append(s,y) ))
+
+  return zz
+
+def gab(fn, dt, N, Ns):
+  t  = np.arange(N) * dt
+  a  = np.zeros( len(t) )
+  w  = 2.0 * np.pi * fn
+  g  = 2.0
+  ts = 1.0
+  x  = np.exp(-(w*(t[:-Ns]-ts)/g)**2) * np.cos(w*(t[:-Ns]-ts) + np.pi/2)
+
+  a[Ns:] = x
+
+  return t, a
+
+"""
 if __name__ == '__main__':
-  gabor(plot=True)
-  pass
+  #############
+  # Main code #
+  #############
+
+  dt   = 0.001
+  N    = 10000
+  Ns   = 1000
+  f0   = 1.0
+  fu   = 20.0
+
+  t, a = gab(100, dt, N, Ns)
+
+  # Derivative in the frequency domain (better than in the time domain)
+
+  a = fftd1(a, dt, 0.025, 2)
+
+  # Filtrage (you use obspy, and I use SAC)
+  # Be careful, acausal filtering (one pass only!!!)
+
+  #a = sac(a, 'BU', 0.0, 0.0, 10, 'LP', f0, fu, dt, 1)
+  a = 100 * a / np.abs(a).max()
+  print(max(a),min(a))
+  # plot
+  plt.figure()
+  plt.plot(t,a)
+  plt.show()
+
+"""
+
+if __name__ == '__main__':
+  # Read source time
+  sf = '/Users/flomin/Desktop/thesis/simulations/Nice/plane_wave/elast_sh/source_bis'
+  src = np.genfromtxt(sf)
+  mx = np.max(np.abs(src[:,1]))
+  mt = np.max(src[:,0])
+  dt = src[1,0] - src[0,0]
+  npts = src.shape[0]
+  t1, y = gtrunc(mx, 6.5, dt, npts, 2500)
+  sf_fft = np.abs(np.fft.fft(src[:,1])) * dt
+  print(np.allclose(t1,src[:,0]))
+  # Plot
+  plt.figure()
+  plt.plot(src[:,0],src[:,1],'r')
+  plt.plot(t1,y)
+  plt.show()
+
+  #write(t1,y,'source6')
+  plot_fft(y,t1)
+
