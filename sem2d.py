@@ -6,7 +6,8 @@
 Class for manipulating SEM2DPACK output files.
   see user manual for more about SEM2DPACK code.
 """
-
+import sys
+sys.path.append('/Users/flomin/Desktop/thesis/MyScripts/python/module')
 import numpy as np
 import time
 import matplotlib.pyplot as plt
@@ -29,24 +30,38 @@ import fcode as fc
 from obspy.signal.konnoohmachismoothing import konno_ohmachi_smoothing as konno
 warnings.filterwarnings("ignore",category=DeprecationWarning)
 
+
 class sem2dpack(object):
+
   """
-    Class to postprocess SEM2DPACK simulation outputs.
-    It implements both object methods and static methods
-    for easy handling and visulazing the data outputs.
-    It has the following instances:
-      - directory :: the simulation directory
-      - mdict     :: dictionary containing spectral element grid infos
-      - dt        :: simulation time step
-      - npts      :: Number of points in record, npts * dt gives
-	             the simulation time
-      - nsta      :: number of reciever stations
-      - velocity  :: velocity traces
-      - tvec      :: time vector (0:dt:npts*dt)
-      - fmax      :: maximum frequency of simulation
-      - tf        :: transfer function in case of sedimentary basins
-      - f         :: frequecy vector
-      - rcoord    :: reciever stations coordinates
+    Class to create fortran code (SEM2DPACK) simulation objects.
+    It defines a set of instance attribute and instance methods for the post-processing and visualizing
+    each simulation outputs.
+
+    Attributes ::
+    -------------
+
+    -- directory : the simulation directory
+    -- mdict     : dictionary containing spectral element grid infos
+    -- dt        : simulation time step
+    -- npts      : Number of points in record, npts * dt gives
+	                   the simulation time
+    -- nsta      : number of reciever stations
+    -- velocity  : velocity traces
+    -- tvec      : time vector (0:dt:npts*dt)
+    -- fmax      : maximum frequency of simulation
+    -- tf        : transfer function in case of sedimentary basins
+    -- f         : frequecy vector
+    -- rcoord    : reciever stations coordinates
+
+    Instance methods (short description) ::
+    ----------------
+
+
+    Static methods ::
+    -----------------
+
+
   """
 
   def __init__(self,directory,freqs=[0.1,10],component='x'):
@@ -69,13 +84,16 @@ class sem2dpack(object):
     self._component = component
 
     try:
-      self.__readSpecgrid()
+      self.__read_Specgrid()
       self.__read_header()
     except:
       print(self.directory)
       raise Exception('Not a sem2dpack simulation directory')
 
-  def __readSpecgrid(self):
+  def __read_Specgrid(self):
+    """
+      Read the properties of the spectral element grid and store them in a dictionary "self.mdict"
+    """
     #read mesh information
     filename = self.directory + 'grid_sem2d.hdr'
     g=np.genfromtxt(filename,dtype=int)
@@ -94,26 +112,36 @@ class sem2dpack(object):
     #read gll information
     filename = self.directory + 'gll_sem2d.tab'
     g=np.genfromtxt(filename)
-    x,w,h=g[0,:],g[1,:],g[2:,:]
+    x, w, h = g[0,:], g[1,:], g[2:,:]
     self.mdict ={"nel" : nel,  # Number of elements in mesh
             "npgeo" : npgeo,   # Number of global nodes
             "ngnod" : ngnod,   # Polynomial order
             "npt" : npt,       # Number of points in spectral mesh
             "ngll" : ngll,     # Number of gll points
-            "coord" : coord,   # Coordinates of gll points
-            "ibool" : ibool,   # Array for global to local mapping
-            "x" : x,
-            "w" : w,
-            "h" : h,
+            "coord" : coord,   # Coordinates of all global nodes points
+            "ibool" : ibool,   # Array for global to local mapping (node number of each element [ngll,ngll,nel])
+            "x" : x,  # GLL coordinates on the reference element [-1,1]
+            "w" : w,  # weights of GLL polynomials
+            "h" : h,  # derivatives of Lagrange polynomials
 
             }
 
   def __read_header(self):
     """
-    Read seismic header file of SEM2DPACK simulation.
-    The method broadcasts the simulation parameters and
-    receiver coordinates instances.
+      Read seismic header file of SEM2DPACK simulation.
+      The method broadcasts the simulation parameters and
+      receiver coordinates instances.
+
+      Upon exit, the method updates the following instances:
+
+        self.dt : simulation time step
+        self.npts : number of points in recoord
+        self.nsta : number of receivers in the simulation
+        self.rcoord : coordinates of receivers
+        self.x_rcoord : if extra receivers are present (e.g receivers which store strain & strain)
+
     """
+
     filename = self.directory + 'SeisHeader_sem2d.hdr'
     f = open(filename, 'r')
     f.readline()
@@ -156,12 +184,28 @@ class sem2dpack(object):
 
   @staticmethod
   def readField(fname):
+    """
+      Staticmethod which reads the snapshots binary files of a simulation.
+    """
     with open(fname,'rb') as f:
       field = np.fromfile(f,np.float32)
-
     return field
 
   def read_seismo(self,filter_s=False,freqs=None):
+    """
+       Reads the seismograms or traces the simulations
+
+       Parameters ::
+       -------------
+         -- filter_s [dtype:bool] : if True seismograms are bandpassed filtered between freqs range
+         -- freqs [dytpe:list]    : limits of frequency range for filtering.
+
+       Upon exit, the method updates the following instances:
+         -- self.velocity :: velocity traces
+         -- self.tvec     :: time vector
+
+    """
+
     if self._component == 'z': filename = self.directory + 'Uz_sem2d.dat'
     elif self._component == 'x': filename = self.directory + 'Ux_sem2d.dat'
     elif self._component == 'y': filename = self.directory + 'Uy_sem2d.dat'
@@ -189,6 +233,14 @@ class sem2dpack(object):
     return self.velocity
 
   def read_stress_strain(self):
+    """
+      Reads stress and strain information.
+
+      Defines the followinginstances:
+        -- self.stress 
+        -- self.strain 
+    """
+
     stress_file = self.directory + 'EXTRA_stress_sem2d.dat'
     strain_file = self.directory + 'EXTRA_strain_sem2d.dat'
 
@@ -215,6 +267,16 @@ class sem2dpack(object):
       print("No stress and strain files were found")
 
   def read_iai_param(self):
+    """
+      Reads shear modolus, deviatoric stress, and S paramaters of the 
+      Iai model. 
+
+      Defines the following instances : 
+        -- self.shear_mod
+        -- self.deviatoric_stress
+        -- self.s_param
+    """
+
     shear_mod_file  = self.directory + 'EXTRA_current_shear_modulus_sem2d.dat'
     dev_stress_file = self.directory + 'EXTRA_deviatoric_stress_sem2d.dat'
     s_param_file    = self.directory + 'EXTRA_S_parameter_sem2d.dat'
@@ -229,7 +291,7 @@ class sem2dpack(object):
 
       l = len(shear_mod)
 
-      assert self.npts == (l/self.xsta)
+      assert self.npts == (l/self.xsta), 'Recording error'
 
       self.shear_mod = np.zeros( (self.npts,self.xsta) )
       self.deviatoric_stress = np.zeros( (self.npts,self.xsta) )
@@ -248,35 +310,56 @@ class sem2dpack(object):
 
 
   def compute_fft(self,filt=True,freqs=[0.1,10.0],axis=0):
-    if not self.velocity.size :
-      pass
+    """
+      Compute the Fourier of all the traces.
+      
+      Parameters
+      ----------
+        -- field ['V','D','A'] :: field on which to compute fft
+      Defines the following instances :
+        -- self.fft_sig
+        -- self.fft_freq
+
+    """
+
+    if self.velocity.size :
+      veloc = self.velocity
     else :
       if filt:
-        veloc = self.read_seismo(component='x',filter_s=True)
+        veloc = self.read_seismo(filter_s=True)
       else:
-        veloc = self.read_seismo(component='x')
-
+        veloc = self.read_seismo()
+  
     detrend = np.subtract(veloc,np.mean(veloc,axis=axis)[np.newaxis,:])
     s = np.abs(self.dt*np.fft.fft(detrend,axis=axis))
-    df = 1.0 / ((detrend.shape[0]-1)*self.dt)
-    nf = int(np.ceil( detrend.shape[0]/2.0) ) +1
-    f = np.arange( nf ) * df
-    self.fft = s[:nf,:]
-    self.fs  = f[:nf]
+    #df = 1.0 / ((detrend.shape[0]-1)*self.dt)
+    #nf = int(np.ceil( detrend.shape[0]/2.0) ) +1
+    #f = np.arange( nf ) * df
+    n = detrend.shape[0]
+    f = np.fft.fftfreq(n,self.dt)
+
+    if n%2:
+      nf = int((n+1)/2)
+    else:
+      nf = int(n/2)
+    
+    self.fft_sig = s[:nf,:]
+    self.fft_freq  = f[:nf]
+    
     return s[:nf,:],f[:nf]
+
 
   @staticmethod
   def interp(field,coord):
     """
-    Interpolates argument field over a meshgrid.
-    Meshgrid size depends on argument coord.
+    Interpolates field over a meshgrid.
+    The meshgrid's size depends on the argument coord.
     """
+
     xcoord = coord[:,0]
     zcoord = coord[:,1]
-    nbx = len(xcoord)
-    nbz = len(zcoord)
     ext = [min(xcoord), max(xcoord), min(zcoord), max(zcoord)]
-    x,z=np.meshgrid(np.linspace(ext[0],ext[1],1000),np.linspace(ext[2],ext[3],1000),sparse=True)
+    x,z = np.meshgrid(np.linspace(ext[0],ext[1],1000),np.linspace(ext[2],ext[3],1000),sparse=True)
     y = gd((xcoord,zcoord),field,(x,z),method='linear')
     y =np.flipud(y)
 
@@ -299,17 +382,17 @@ class sem2dpack(object):
     xcoord = coord[:,0]
     zcoord = coord[:,1]
     frames = sorted(glob.iglob(self.directory + filename))
-    nframe = int(len(frames)/2)
+    nframe = len(frames)/2
     ext = [min(xcoord), max(xcoord), -1 * max(zcoord), min(zcoord)]
     ims = []
     field =[]
-    pool = mp.Pool(processes=os.cpu_count()) # set the number of processes
+    pool = mp.Pool(processes=os.cpu_count()) # Initializes a pool of processes
     for i in range(nframe):
       f = self.readField(frames[i])
       field.append(f)
 
     results = [pool.apply_async(self.interp,args=(x,coord)) for x in field]  # run the processes
-    output = [p.get() for p in results]  # retrieve processes information
+    output  = [p.get() for p in results]  # retrieve processes information
 
     duration = self.npts * self.dt
 
@@ -319,9 +402,9 @@ class sem2dpack(object):
     Writer = anim.writers['ffmpeg']
     writer = Writer(metadata=dict(artist='Flomin'))
     vmin , vmax = -5e-10, 5e-10
-    print(nframe)
+    
     for i in range(int(nframe)):
-      frametitle = 'snapshot at time = ' + str(round((i/nframe)*duration,1)) + ' secs'
+      frametitle = 'Snapshot at time = ' + str(round((i/nframe)*duration,1)) + ' secs'
       ttl = plt.text(0.5, 1.01, frametitle, ha='center', \
                      va='bottom', transform=ax.transAxes,fontsize=18)
       im = plt.imshow(output[i],extent=ext,cmap=cmap,\
@@ -346,34 +429,38 @@ class sem2dpack(object):
     return
 
 
-  def plot_snapshot(self,filename,savefile=None):
+  def plot_snapshot(self,filename,savefile=None,cmap='jet'):
+    """
+      Plot the snapshot a particular time
+    """
+    frame_names = "v"+self._component+"_*_sem2d.dat"
+    nframe = len(sorted(glob.iglob(self.directory + frame_names))) - 1
+    duration = self.dt * self.npts
+
     if not isinstance(filename,str) :
       raise Exception('TypeError : filename must be string ')
     else :
+      frame_number = int(filename.split('_')[1])
       filename = self.directory + filename
+
     field = self.readField(filename)
     coord = self.mdict["coord"]
     xcoord = coord[:,0] ; zcoord = coord[:,1]
-    nbx = len(xcoord)/4 ; nbz = len(zcoord)/4
-    ext = [min(xcoord), max(xcoord), min(zcoord), max(zcoord)]
-    vmin = -1e-10
-    vmax = 1e-10
-    x,z=np.meshgrid(np.linspace(ext[0],ext[1],1000),np.linspace(ext[2],ext[3],1000))
-    y = gd((xcoord,zcoord),field,(x,z),method='linear')
-    y =np.flipud(y)
-    fig = plt.figure()
-    fig.subplots_adjust(hspace=0.35)
-    ax = fig.add_subplot(111)
-    im = ax.imshow(y,extent=[min(xcoord), max(xcoord)/1e3, min(zcoord), max(zcoord)/1e3],cmap='jet',
-                  vmin=vmin,vmax=vmax)
+    y = self.interp(field,coord)
+    vmin = np.nanmin(y)
+    vmax = np.nanmax(y)
+    a_ratio = (np.max(zcoord) - np.min(zcoord)) / (np.max(xcoord) - np.min(xcoord)) # aspect ratio
+    
+    fig, ax = plt.subplots()
+    im = ax.imshow(y,extent=[min(xcoord)/1e3, max(xcoord)/1e3, min(zcoord), max(zcoord)],cmap=cmap,
+                  vmin=vmin,vmax=vmax, aspect=a_ratio)
     plt.tight_layout
-    c=plt.colorbar(im,fraction=0.046, \
-    pad=0.06,shrink=0.4)
-    plt.ylabel('Depth [km]')
-    plt.xlabel('Length [km]')
+    c=plt.colorbar(im,format='%.0e', fraction=0.046, pad=0.06, shrink=0.4)
+    plt.ylabel('Depth [m]')
+    plt.xlabel('Length [m]')
     c.set_clim(vmin,vmax)
     c.set_label('Particle velocity $ms^{-1}}$')
-    plt.title('Snapshot at t = $1.6sec$')
+    plt.title('Snapshot at t = {:.3f} $sec$'.format( (frame_number/nframe)*duration) )
     if savefile : plt.savefig(savefile,dpi=300)
     plt.show()
 
@@ -431,8 +518,8 @@ class sem2dpack(object):
     plt.show()
 
 
-  def compute_tf(self, nsurface, blim, smooth=True, proc=2,
-                 saveBr=False, useBr=False, brockName=None,option=None,bd=40):
+  def compute_tf(self, nsurface, blim, smooth=True,
+                 saveBr=False, useBr=False, brockName=None,bd=40):
     """
      Computes the 2D transfer function of a sedimentary basin.
 
@@ -444,15 +531,13 @@ class sem2dpack(object):
      		      sedimentary basin and the bed rock
      * smooth (bool) :: To apply a konno-Ohmachi smoothing to the
                       signal's spectra
-     * proc (int)  :: To run the code in parallel on `proc` number of
-                      processors. Define proc=1 to run the code
-		      sequentially
-     * option (str) :: [default:bedrock] Reference signal to compute standard
-                      spectral ratio,
-                      - 'BR' : to use bedrock signal
-                      - 'SRC'  : to use source signal spectrum
+
+     * brockName :: Bedrock spectrum file name to load if useBr=True
+
+     * bd        :: band width of Konno-Ohmachi smoothing function
+
     -- return --
-    + self.interpolated_tf (ndarray) :: transfer function
+     * Initializes self.raw_ssr variable which contains the transfer functions
 
     """
 
@@ -463,102 +548,37 @@ class sem2dpack(object):
     # Get rock station x-coordinates
     nt, nx = self.velocity.shape
     xcoord = self.rcoord[:,0]
-    zcoord = self.rcoord[:,1]
     xmin = np.where(xcoord[:nsurface]<blim[0])
     xmax = np.where(xcoord[:nsurface]>blim[1])
     br_sta_coord = np.append(xmin[0],xmax[0])   # bed rock station coordinates
 
     # Compute the tranfer function on displacements
-    if option == 'disp':
-      veloc = np.array([cumtrapz(self.velocity[:,i],self.tvec,initial=0,axis=-1) \
-                        for i in range(421)]).T
-    elif option == 'acc':
-      veloc = np.gradient(self.velocity,self.dt,axis=0)
+
+    self.compute_fft()
+
+    if not useBr :
+
+      br_fft = self.fft_sig[:,br_sta_coord]
+      br_fft = br_fft.mean(axis=1)
+      if saveBr: np.save(brockName,br_fft)
 
     else :
-      veloc = self.velocity
 
-    if proc <= 1:                    # run code sequentially
-      br_fft = []
-      for i in br_sta_coord:
-        sig_fft , freq = fourier(veloc[:,i], self.dt, 0.025)
-        br_fft.append( sig_fft )
+      br_fft = np.load(brockName)
 
-      # mean bedrock trace
-      br_fft = np.array(br_fft)
-      br_mean_fft = np.mean(br_fft,axis=0)
-
-      if smooth:
-        df    = freq[1] - freq[0]
-        br_mean_fft = ko2(br_mean_fft,freq)
-
-      basin_fft = []
-      for i in range(nsurface):
-        sig_fft,freq = fourier( veloc[:,i], self.dt, 0.025)
-        if smooth:
-          amp = ko2(amp,f)
-        basin_fft.append( amp / br_mean_fft )
-      basin = np.array(basin_fft)
-
+    # Smoothing the spectrum
+    if smooth :
+      br_fft = konno(br_fft,self.fft_freq,normalize=True)
+      basin_fft = konno(self.fft_sig.T,self.fft_freq,normalize=True)
     else:
+      basin_fft = self.fft_sig.T
+  
+    raw_ssr = basin_fft[:nsurface,:]/br_fft[np.newaxis,:]
 
-      # Initialize pool of processors
-      pool = mp.Pool(processes=proc)
-      if not useBr :
 
-        results = [pool.apply_async(fourier,args=(veloc[:,i],self.dt)) \
-                   for i in br_sta_coord]
-        br_fft = [p.get()[0] for p in results]
-        freq = results[0].get()[1]
-        del results
+    self.raw_ssr = raw_ssr
 
-        br_fft = np.array(br_fft)
-        br_fft = np.mean(br_fft,axis=0)
-
-        # Smoothing the spectrum
-        if smooth :
-          br_fft = konno(br_fft,freq,normalize=True)
-
-        if saveBr: np.save(brockName,br_fft)
-
-      else :
-
-        br_fft = np.load(brockName)
-
-      self.ref_fft = br_fft
-
-      # Computing spectral ratio all over the basin
-      results = [pool.apply_async(fourier,args=[veloc[:,i],self.dt]) for i \
-                in range(nsurface)]
-
-      if useBr :
-        freq = results[0].get()[1]
-
-      #basin_fft = [ np.divide(p.get()[0],br_fft) for p in results ]
-      #basin_fft = np.array(basin_fft)
-      basin_fft = [p.get()[0] for p in results]
-      basin_fft = np.array(basin_fft)
-
-      if smooth :
-        #gbasin_fft = [ sp.savgol_filter(basin_fft[i],21,2,axis=0) for i in range(len(basin_fft))]
-        basin_fft = konno(basin_fft,freq,bandwidth=bd,normalize=True)
-        #basin_ffts = np.zeros(basin_fft.shape)
-        #for i in range(self.nsta):
-        #  df = freq[1] - freq[0]
-        #  basin_ffts[i,:] = ko(basin_fft[i,:],self.dt,df,fmax=100)[1]
-        #basin_fft = basin_ffts
-
-      raw_ssr = basin_fft / br_fft
-
-      self.raw_ssr = raw_ssr
-      self.basin_fft = basin_fft
-
-      if option == 'disp':
-        self.disp    = veloc
-
-    self.freq  = freq
-
-    return self.raw_ssr, self.freq
+    return self.raw_ssr
 
 
   def plot_tf(self,savefile=None,cmap='jet',**kwargs):
@@ -1002,6 +1022,49 @@ class sem2dpack(object):
     self.lag_time   = deltat
     return
 
+
+# =================================================
+#
+#    TOP LEVEL FUNCTIONS 
+#
+# =================================================
+
+def cc_matrix_static(signal1,signal2,dt):
+  """ Computes the cross correlation matrix of 2 arrays
+
+  :Inputs 
+     -- signal1 [dtype:np.ndarray] :: 1st array of shape (n,m1) to cross-correlate with signal2
+     -- signal2 [dtype:np.ndarray] :: 2nd array of shape (n,m2) to cross-correlate with signal1
+     -- dt [dtype:np.float]  :: time step of the signal in signal1 and signal2
+
+  :Outputs
+     -- cc [dtype:np.ndarray] :: output matrix (m1,m2) containing the cross-correlation values
+     -- tc
+  """
+  
+  shape1 = signal1.shape 
+  shape2 = signal2.shape
+  
+  cc = np.zeros((shape1[1],shape2[1]),dtype=object)  # cross correlation array
+  deltat = np.zeros(cc.shape)                # array of lag time between signal pairs
+  tri_indices = np.triu_indices_from(cc)
+
+  maxlag = int( ( shape1[0] * 2 - 1) / 2 )
+  tcc = np.arange(-maxlag,maxlag+1) * dt
+  
+  tic = time.time()
+  for i, j in zip(tri_indices[0],tri_indices[1]):
+    tmp = sp.correlate(signal1[:,i],signal2[:,j])
+    #indmax = np.where(tmp==np.max(tmp))[0][0]
+    #deltat[i,j] = np.abs(tcc[indmax])
+    #cc[i,j] = tmp 
+  print('cc2 computed in {:.2f} secs'.format(time.time() - tic))
+  assert tcc.shape == cc[0,0].shape
+
+
+  return cc, tcc, deltat
+
+
 def plot_tf(tf,freq,xcoord,fmax,savefile=None,cmap='jet',**kwargs):
 
     # Interpolated array on 2d meshgrid
@@ -1059,6 +1122,6 @@ def plot_tf(tf,freq,xcoord,fmax,savefile=None,cmap='jet',**kwargs):
 if __name__ == '__main__':
   dir2 = '/Users/flomin/Desktop/thesis/simulations/Nice/plane_wave/elast_psv/'
   dir2_obj = sem2dpack(dir2, component='x')
-  dir2_obj.cc_matrix()
+  dir2_obj.compute_tf(nsurface=421,blim=[350,1750])
   db.set_trace()
 

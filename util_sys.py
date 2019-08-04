@@ -61,7 +61,7 @@ def set_plot_param(option='tick',**kwargs):
 def set_rcParams():
   import matplotlib.pyplot as plt
 
-  plt.rcParams['axes.labelsize'] = 14
+  plt.rcParams['axes.labelsize'] = 13
   plt.rcParams['axes.linewidth'] = 1.2
   plt.rcParams['axes.titlesize'] = 16
   plt.rcParams['axes.xmargin']   = 0.02
@@ -72,7 +72,7 @@ def set_rcParams():
   plt.rcParams['figure.subplot.wspace'] = 0.3
   plt.rcParams['figure.titlesize']      = 18
   plt.rcParams['figure.titleweight']    = 'regular'
-  plt.rcParams['grid.color']            = '#101010'
+  #plt.rcParams['grid.color']            = '#101010'
   plt.rcParams['grid.alpha']             = 0.5
   plt.rcParams['grid.linewidth']        = 1
   plt.rcParams['legend.fontsize']       = 12
@@ -81,10 +81,11 @@ def set_rcParams():
   plt.rcParams['xtick.labelsize']       = 12
   plt.rcParams['ytick.labelsize']       = 12
   plt.rcParams['xtick.major.size']      = 4
-  plt.rcParams['xtick.major.width']     = 1.1
-  #plt.rcParams['xtick.minor.visible']   = True
+  plt.rcParams['xtick.major.width']     = 1.15
+  plt.rcParams['xtick.minor.visible']   = True
   plt.rcParams['ytick.major.size']      = 4
-  plt.rcParams['ytick.major.width']     = 1.1
+  plt.rcParams['ytick.major.width']     = 1.15
+  plt.rcParams['xtick.minor.width']     = 0.9
   #plt.rcParams['xtick.minor.visible']   = True
   #plt.rcParams['font.sans-serif']       = 'Arial'
   plt.rcParams['font.fantasy']          = 'Comic Sans MS'
