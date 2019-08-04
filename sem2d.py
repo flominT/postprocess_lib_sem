@@ -11,7 +11,6 @@ sys.path.append('/Users/flomin/Desktop/thesis/MyScripts/python/module')
 import numpy as np
 import time
 import matplotlib.pyplot as plt
-from houches_fb import fourier
 import glob
 from scipy.interpolate import griddata as gd
 from scipy.integrate import cumtrapz
@@ -1055,9 +1054,9 @@ def cc_matrix_static(signal1,signal2,dt):
   tic = time.time()
   for i, j in zip(tri_indices[0],tri_indices[1]):
     tmp = sp.correlate(signal1[:,i],signal2[:,j])
-    #indmax = np.where(tmp==np.max(tmp))[0][0]
-    #deltat[i,j] = np.abs(tcc[indmax])
-    #cc[i,j] = tmp 
+    indmax = np.where(tmp==np.max(tmp))[0][0]
+    deltat[i,j] = np.abs(tcc[indmax])
+    cc[i,j] = tmp 
   print('cc2 computed in {:.2f} secs'.format(time.time() - tic))
   assert tcc.shape == cc[0,0].shape
 
