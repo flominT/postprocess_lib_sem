@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
 """
 @Author :: Flomin T.
@@ -6,14 +6,13 @@
 Class for manipulating SEM2DPACK output files.
   see user manual for more about SEM2DPACK code.
 """
+
 import sys
-sys.path.append('/Users/flomin/Desktop/thesis/MyScripts/python/module')
 import numpy as np
 import time
 import matplotlib.pyplot as plt
 import glob
 from scipy.interpolate import griddata as gd
-from scipy.integrate import cumtrapz
 import scipy.signal as sp
 import matplotlib.animation as anim
 import multiprocessing as mp
@@ -26,7 +25,10 @@ from stockwell import st
 import warnings
 from util_sys import *
 import fcode as fc
+from dtw import accelerated_dtw as dtw
+from scipy.spatial.distance import euclidean
 from obspy.signal.konnoohmachismoothing import konno_ohmachi_smoothing as konno
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 warnings.filterwarnings("ignore",category=DeprecationWarning)
 
 
@@ -50,7 +52,7 @@ class sem2dpack(object):
     -- tvec      : time vector (0:dt:npts*dt)
     -- fmax      : maximum frequency of simulation
     -- tf        : transfer function in case of sedimentary basins
-    -- f         : frequecy vector
+    -- fft_freq  : frequecy vector
     -- rcoord    : reciever stations coordinates
 
     Instance methods (short description) ::
@@ -63,18 +65,16 @@ class sem2dpack(object):
 
   """
 
-  def __init__(self,directory,freqs=[0.1,10],component='x'):
+  def __init__(self,directory,freqs=[0.1,12],component='x'):
     self.directory = directory
     self.mdict = {}
     self.dt = 0.0
     self.npts = 0
     self.nsta = 0
-    self.velocity = np.array([])
     self.tvec = np.array([])
     self.fmax = 0.0
     self.interpolated_tf = np.array([])
     self.interpolated_f = np.array([])
-    self.freq = np.array([])
     self.rcoord = np.array([])
     self.x_interp = np.array([])
     self.vs_int = np.array([])
@@ -142,7 +142,17 @@ class sem2dpack(object):
     """
 
     filename = self.directory + 'SeisHeader_sem2d.hdr'
-    f = open(filename, 'r')
+    try :
+      f = open(filename, 'r')
+    except:
+      msg = 'No Header file <SeisHeader_sem2d.hdr> in directory'
+      print(msg)
+      answer = input("Do you want to continue [Y/N] : ")
+      if answer.upper() == 'Y':
+        return
+      else:
+        sys.exit()
+
     f.readline()
     string = f.readline()
     header_line   = string.rstrip(" ").split()
@@ -205,30 +215,58 @@ class sem2dpack(object):
 
     """
 
-    if self._component == 'z': filename = self.directory + 'Uz_sem2d.dat'
-    elif self._component == 'x': filename = self.directory + 'Ux_sem2d.dat'
-    elif self._component == 'y': filename = self.directory + 'Uy_sem2d.dat'
+    if self._component == 'x':   # PSV case
+      filename_x   = self.directory + 'Ux_sem2d.dat'
+      filename_z = self.directory + 'Uz_sem2d.dat'
 
-    try :
-      with open(filename, 'rb') as fid:
-        veloc_array = np.fromfile(fid,np.float32)
-    except :
-      raise Exception('No velocity file in {:s}'.format(self.directory))
+      try :
+        with open(filename_x, 'rb') as fid:
+          veloc_array_x = np.fromfile(fid,np.float32)
+        with open(filename_z, 'rb') as fid:
+          veloc_array_z = np.fromfile(fid,np.float32)
+      except :
+        raise Exception('No velocity file in {:s}'.format(self.directory))
 
-    l = len(veloc_array)
-    self.velocity = np.zeros((self.npts,self.nsta))
+      l = len(veloc_array_x)
+      self.velocity = np.zeros((self.npts,self.nsta))
+      self.velocity_z = np.zeros((self.npts,self.nsta))
 
-    for i in range(int(l/self.nsta)):
-      limit1 = i*self.nsta
-      limit2 = (i+1)*self.nsta
-      self.velocity[i,:] = veloc_array[limit1:limit2]
+      for i in range(int(l/self.nsta)):
+        limit1 = i*self.nsta
+        limit2 = (i+1)*self.nsta
+        self.velocity[i,:] = veloc_array_x[limit1:limit2]
+        self.velocity_z[i,:] = veloc_array_z[limit1:limit2]
 
-    self.tvec = np.arange(self.npts) * self.dt
+      self.tvec = np.arange(self.npts) * self.dt
 
-    if filter_s :
-      freqs = freqs or self._freqs
-      self.velocity = self.filter_seismo(self.velocity,freqs=freqs,ftype='bandpass',dt=self.dt)
-      return self.velocity
+      if filter_s :
+        freqs = freqs or self._freqs
+        self.velocity = self.filter_seismo(self.velocity,freqs=freqs,ftype='bandpass',dt=self.dt)
+        self.velocity_z = self.filter_seismo(self.velocity_z,freqs=freqs,ftype='bandpass',dt=self.dt)
+        return self.velocity
+    elif self._component == 'y': # SH case
+      filename_y   = self.directory + 'Uy_sem2d.dat'
+      try :
+        with open(filename_y, 'rb') as fid:
+          veloc_array = np.fromfile(fid,np.float32)
+      except :
+        raise Exception('No velocity file in {:s}'.format(self.directory))
+
+      l = len(veloc_array)
+      self.velocity = np.zeros((self.npts,self.nsta))
+
+      for i in range(int(l/self.nsta)):
+        limit1 = i*self.nsta
+        limit2 = (i+1)*self.nsta
+        self.velocity[i,:] = veloc_array[limit1:limit2]
+
+      self.tvec = np.arange(self.npts) * self.dt
+
+      if filter_s :
+        freqs = freqs or self._freqs
+        self.velocity = self.filter_seismo(self.velocity,freqs=freqs,ftype='bandpass',dt=self.dt)
+        return self.velocity
+
     return self.velocity
 
   def read_stress_strain(self):
@@ -236,8 +274,8 @@ class sem2dpack(object):
       Reads stress and strain information.
 
       Defines the followinginstances:
-        -- self.stress 
-        -- self.strain 
+        -- self.stress
+        -- self.strain
     """
 
     stress_file = self.directory + 'EXTRA_stress_sem2d.dat'
@@ -267,10 +305,10 @@ class sem2dpack(object):
 
   def read_iai_param(self):
     """
-      Reads shear modolus, deviatoric stress, and S paramaters of the 
-      Iai model. 
+      Reads shear modolus, deviatoric stress, and S paramaters of the
+      Iai model.
 
-      Defines the following instances : 
+      Defines the following instances :
         -- self.shear_mod
         -- self.deviatoric_stress
         -- self.s_param
@@ -307,11 +345,26 @@ class sem2dpack(object):
     else :
       print('No Iai model parameter files found')
 
+  def decimate_sig(self,q=4,filter_s=True):
+    """
+      Decimate velocity traces by a factor q,
+
+    """
+
+    self.read_seismo(filter_s=filter_s)
+    fe = 1/self.dt
+    deci_fe = fe / q
+    deci_dt = 1/deci_fe
+    self.decimated_veloc = sp.decimate(self.velocity,q,n=4,axis=0)
+    n = self.decimated_veloc.shape[0]
+    self.deci_tvec = np.arange(n) * deci_dt
+    return
+
 
   def compute_fft(self,filt=True,freqs=[0.1,10.0],axis=0):
     """
       Compute the Fourier of all the traces.
-      
+
       Parameters
       ----------
         -- field ['V','D','A'] :: field on which to compute fft
@@ -321,19 +374,18 @@ class sem2dpack(object):
 
     """
 
-    if self.velocity.size :
+    if hasattr(self,'velocity') :
       veloc = self.velocity
     else :
       if filt:
         veloc = self.read_seismo(filter_s=True)
       else:
-        veloc = self.read_seismo()
-  
+        veloc = self.read_seismo(filter_s=False)
+
+
     detrend = np.subtract(veloc,np.mean(veloc,axis=axis)[np.newaxis,:])
     s = np.abs(self.dt*np.fft.fft(detrend,axis=axis))
-    #df = 1.0 / ((detrend.shape[0]-1)*self.dt)
-    #nf = int(np.ceil( detrend.shape[0]/2.0) ) +1
-    #f = np.arange( nf ) * df
+
     n = detrend.shape[0]
     f = np.fft.fftfreq(n,self.dt)
 
@@ -341,10 +393,10 @@ class sem2dpack(object):
       nf = int((n+1)/2)
     else:
       nf = int(n/2)
-    
+
     self.fft_sig = s[:nf,:]
     self.fft_freq  = f[:nf]
-    
+
     return s[:nf,:],f[:nf]
 
 
@@ -364,67 +416,71 @@ class sem2dpack(object):
 
     return y
 
-  def animate(self,savefile=None,cmap='jet',interval=1500,repeat_delay=1):
+  def animate(self,savefile=None,cmap='jet',interval=1500,repeat_delay=1000,duration=1, background=True):
     """
     Animates SEM2DPACK snapshots
     """
 
     # Plot parameters
-    label_param  = set_plot_param(option='label',fontsize=16,fontname='serif')
-    title_param  = set_plot_param(option='label',fontsize=18,fontname='serif')
-    tick_param   = set_plot_param(option='tick', fontsize=14,fontname='serif')
-    c_tick_param = set_plot_param(option='c_tick',fontsize=14,fontname='serif')
-
 
     filename = "v"+self._component+"_*_sem2d.dat"
     coord  = self.mdict["coord"]
     xcoord = coord[:,0]
     zcoord = coord[:,1]
     frames = sorted(glob.iglob(self.directory + filename))
-    nframe = len(frames)/2
+    nframe = int(len(frames)/4)
     ext = [min(xcoord), max(xcoord), -1 * max(zcoord), min(zcoord)]
     ims = []
     field =[]
-    pool = mp.Pool(processes=os.cpu_count()) # Initializes a pool of processes
+
     for i in range(nframe):
       f = self.readField(frames[i])
       field.append(f)
 
+    pool = mp.Pool(processes=os.cpu_count()) # Initializes a pool of processes
+
     results = [pool.apply_async(self.interp,args=(x,coord)) for x in field]  # run the processes
     output  = [p.get() for p in results]  # retrieve processes information
 
-    duration = self.npts * self.dt
+    duration = duration or (self.npts * self.dt)
 
-    fig, ax = plt.subplots(figsize=(10,6))
-    xlabel = 'Length [m]'
-    ylabel = 'Depth [m]'
+    fig, ax = plt.subplots(figsize=(10,4))
+
+    if background:
+      vsfile = self.directory + 'Cs_gll_sem2d.tab'
+      with open(vsfile,'r') as v:
+        vs_int = pd.read_csv(v,sep='\s+',names=['vs','x','z'])
+      ax.scatter(vs_int['x'], vs_int['z'], c=vs_int['vs'], s=20, cmap='jet')
+
     Writer = anim.writers['ffmpeg']
-    writer = Writer(metadata=dict(artist='Flomin'))
+    writer = Writer(fps=2,metadata=dict(artist='Flomin'))
     vmin , vmax = -5e-10, 5e-10
-    
-    for i in range(int(nframe)):
-      frametitle = 'Snapshot at time = ' + str(round((i/nframe)*duration,1)) + ' secs'
-      ttl = plt.text(0.5, 1.01, frametitle, ha='center', \
+
+    for i in range(nframe):
+      frametitle = 'Snapshot at time = {:.1f} secs'.format((i/nframe)*duration)
+      ttl = ax.text(0.5, 1.01, frametitle, ha='center', \
                      va='bottom', transform=ax.transAxes,fontsize=18)
-      im = plt.imshow(output[i],extent=ext,cmap=cmap,\
+      im = ax.imshow(output[i],extent=ext,cmap=cmap,\
                       aspect="auto",animated=True,vmin=vmin,vmax=vmax)
+
+      im.set_clim(vmin,vmax)
       ims.append([im,ttl])
+      ims.append([im,])
 
     ani = anim.ArtistAnimation(fig,ims,interval=interval,blit=False,
                               repeat_delay=repeat_delay)
-    ax.set_xlabel(xlabel,**label_param)
-    ax.set_ylabel(ylabel,**label_param)
-    #plt.gca().invert_yaxis()
 
-    c=plt.colorbar(fraction=0.1,pad=0.08,shrink=0.8)
-    c.set_clim(vmin,vmax)
-    c.set_label('particle velocity $[ms^{-1}]$',**label_param)
-    c.ax.yaxis.set_tick_params(**c_tick_param)
-    c.ax.set_yticks(fontname='serif')
-    plt.xticks(fontname='serif',color='black',fontsize=14)
-    plt.yticks(fontname='serif',color='black',fontsize=14)
-    if savefile : ani.save(savefile,writer=writer)
-    plt.show()
+    ax.set_xlabel('Length [m]')
+    ax.set_ylabel('Depth [m]')
+    ax.minorticks_off()
+    ax.invert_yaxis()
+
+    c= plt.colorbar(im, fraction=0.1,pad=0.08,shrink=0.8)
+    c.set_label('particle velocity $[ms^{-1}]$')
+
+    if savefile : ani.save(savefile,writer=writer,savefig_kwargs={'pad_inches':0.01})
+    plt.show(block=True)
+
     return
 
 
@@ -449,7 +505,7 @@ class sem2dpack(object):
     vmin = np.nanmin(y)
     vmax = np.nanmax(y)
     a_ratio = (np.max(zcoord) - np.min(zcoord)) / (np.max(xcoord) - np.min(xcoord)) # aspect ratio
-    
+
     fig, ax = plt.subplots()
     im = ax.imshow(y,extent=[min(xcoord)/1e3, max(xcoord)/1e3, min(zcoord), max(zcoord)],cmap=cmap,
                   vmin=vmin,vmax=vmax, aspect=a_ratio)
@@ -464,45 +520,29 @@ class sem2dpack(object):
     plt.show()
 
 
-  def plot_wiggle(self,ssta=None,sf=None,component='x',savefile=None,stride=1,**kwargs):
+  def plot_wiggle(self,ssta=None,sf=None,savefile=None,stride=1,axis=None,**kwargs):
     if isinstance(ssta,int):
       begin = 0
-      end   = ssta
+      end   = ssta -1
     elif isinstance(ssta,(list,tuple)):
       begin = ssta[0]
-      end   = ssta[1]
+      end   = ssta[1]-1
+    else:
+      begin, end = 0, -1
 
-    xx = self.rcoord[:,0]
-    if not self.velocity.size:
+    xx = self.rcoord[begin:end:stride,0]
+    if not hasattr(self,'velocity'):
       print("Re-reading traces")
       self.read_seismo(filter_s=True)
-    if sf!=None:
-      wig.wiggle(self.velocity[:,begin:end:stride],self.tvec,xx=xx,sf=sf)
+
+    if sf != None:
+      axis = wig.wiggle(self.velocity[:,begin:end:stride],self.tvec,sf=sf,axis=axis)
     else :
-      wig.wiggle(self.velocity[:,begin:end:stride],self.tvec,xx=xx)
-      
-    plt.xlabel('horizontal profile of reciever stations [m]',fontsize=20,color='black')
-    plt.ylabel('time [s]',fontsize=20,color='black')
-    if "xlim" in kwargs:
-      xlim = kwargs["xlim"]
-      plt.xlim(xlim[0],xlim[1])
-    else:
-      plt.xlim([0,max(xx)+2])
+      axis = wig.wiggle(self.velocity[:,begin:end:stride],self.tvec,axis=axis)
 
-    if "ylim" in kwargs:
-      ylim = kwargs["ylim"]
-      plt.ylim(ylim[1],ylim[0])
-    else:
-      plt.ylim([max(self.tvec),0])
 
-    if "title" in kwargs:
-      title = kwargs["title"]
-      plt.title(title,fontsize=22)
-    plt.xticks(fontsize=18,color='black')
-    plt.yticks(fontsize=18,color='black')
-    if savefile:
-      plt.savefig(savefile,dpi=300)
-    plt.show(block=False)
+    return axis
+
 
   def plot_trace(self,trace_number=0):
     if not self.velocity.size:
@@ -517,7 +557,7 @@ class sem2dpack(object):
     plt.show()
 
 
-  def compute_tf(self, nsurface, blim, smooth=True,
+  def compute_tf(self, nsurface, blim, smooth=True, filt=False,
                  saveBr=False, useBr=False, brockName=None,bd=40):
     """
      Computes the 2D transfer function of a sedimentary basin.
@@ -540,20 +580,27 @@ class sem2dpack(object):
 
     """
 
-    if not self.velocity.size:
+    if not hasattr(self,'velocity'):
       print("Reading velocity traces")
-      self.read_seismo(filter_s=True)
+      if filt:
+        self.read_seismo(filter_s=True)
+      else:
+        self.read_seismo(filter_s=False)
 
     # Get rock station x-coordinates
     nt, nx = self.velocity.shape
     xcoord = self.rcoord[:,0]
     xmin = np.where(xcoord[:nsurface]<blim[0])
     xmax = np.where(xcoord[:nsurface]>blim[1])
+
     br_sta_coord = np.append(xmin[0],xmax[0])   # bed rock station coordinates
 
     # Compute the tranfer function on displacements
 
-    self.compute_fft()
+    if filt :
+      self.compute_fft()
+    else:
+      self.compute_fft(filt=False)
 
     if not useBr :
 
@@ -571,7 +618,7 @@ class sem2dpack(object):
       basin_fft = konno(self.fft_sig.T,self.fft_freq,normalize=True)
     else:
       basin_fft = self.fft_sig.T
-  
+
     raw_ssr = basin_fft[:nsurface,:]/br_fft[np.newaxis,:]
 
 
@@ -582,18 +629,30 @@ class sem2dpack(object):
 
   def plot_tf(self,savefile=None,cmap='jet',**kwargs):
 
+    if 'raw_ssr' in kwargs.keys():
+      raw_ssr = kwargs['raw_ssr'].T
+      xcoord = kwargs['xcoord']
+      fft_freq = kwargs['freq']
+    else:
+      if not hasattr(self,'raw_ssr'):
+        print('Must run compute_tf first !! \n Existing ...')
+        sys.exit()
+      else:
+        raw_ssr = self.raw_ssr.T
+
+      xcoord = self.rcoord[:,0]
+      fft_freq = self.fft_freq
+
     # Interpolated array on 2d meshgrid
-    xcoord = self.rcoord[:,0]
     xmin , xmax = np.min(xcoord) , np.max(xcoord)
-    ymax = np.max(self.freq)
-    dy = self.freq[1]-self.freq[0]
-    x1,y1 = np.meshgrid(xcoord,self.freq)
-    xi, yi = np.linspace(xmin,xmax,int(2*xmax)), np.linspace(0,ymax,int(ymax/dy))
-    X,Y = np.meshgrid(xi,yi)
-    zi = gd((x1.ravel(order='F'),y1.ravel(order='F')),self.raw_ssr.ravel(),(X,Y))
+
+    #set_rcParams()
 
     #-- Plot
-    fig = plt.figure(figsize=(8,6))
+    if 'axis' in kwargs.keys():
+      ax = kwargs['axis']
+    else:
+      fig, ax = plt.subplots(figsize=(8,6))
 
     if 'clim' in kwargs:
       cmin = kwargs['clim'][0]
@@ -601,57 +660,66 @@ class sem2dpack(object):
     else :
       cmin = 0
       cmax = 7
-    ax = fig.add_subplot(111)
 
-    im = ax.imshow(zi, cmap=cmap, aspect='auto', interpolation='bilinear',vmin=cmin, vmax=cmax, \
-     origin='lower', extent=[xmin,xmax, min(self.freq),ymax])
+    im = ax.imshow(raw_ssr, cmap=cmap, aspect='auto', interpolation='bilinear',vmin=cmin, vmax=cmax, \
+     origin='lower', extent=[xmin,xmax,0,max(fft_freq)])
 
-    #-- Get plot parameters ----
+    #-- Set plot parameters ----
+    if 'xlim' in kwargs   :
+      ax.set_xlim(kwargs['xlim'][0], kwargs['xlim'][1])
+    else:
+      ax.set_xlim(xmin,xmax)
 
-    label_param  = set_plot_param(option='label',fontsize=16)
-    title_param  = set_plot_param(option='label',fontsize=18)
-    tick_param   = set_plot_param(option='tick', fontsize=12)
-    c_tick_param = set_plot_param(option='c_tick',fontsize=12)
-
-    if 'xlim' in kwargs   : ax.set_xlim(kwargs['xlim'][0], kwargs['xlim'][1])
     if 'ylim' in kwargs   :
       ax.set_ylim(kwargs['ylim'][0], kwargs['ylim'][1])
     else : ax.set_ylim(0.1,self._freqs[1])
 
-    if 'ylabel' in kwargs :
-      ax.set_ylabel(kwargs['ylabel'], **label_param)
-    else :
-      ax.set_ylabel('Frequency [Hz]', **label_param)
+    if 'axis' in kwargs.keys():
+      divider = make_axes_locatable(ax)
+      cax     = divider.append_axes('right', size='3%', pad=0.2)
+      c  = plt.colorbar(im, cax=cax, fraction=0.046, shrink=0.6)
+      im.set_clim(0,7)
+      c.set_label('Amplification')
+      c.ax.minorticks_off()
+      ax.xaxis.set_visible(False)
 
-    if 'xlabel' in kwargs :
-      ax.set_xlabel(kwargs['xlabel'], **label_param)
-    else :
-      ax.set_xlabel('Horizontal profile [m]', **label_param)
+      if 'ylabel' in kwargs :
+        ax.set_ylabel(kwargs['ylabel'])
+      else :
+        ax.set_ylabel('Frequency [Hz]')
 
-    if 'title' in kwargs  : ax.set_title(kwargs['title'], **title_param)
+      if 'xlabel' in kwargs :
+        ax.set_xlabel(kwargs['xlabel'])
+      else :
+        ax.set_xlabel('Horizontal profile [m]')
 
-    ax.tick_params(**tick_param)
+      if 'title' in kwargs  : ax.set_title(kwargs['title'])
 
-    cb = fig.colorbar(im, shrink=0.6, aspect=10, pad=0.02, ticks=np.linspace(cmin,cmax,cmax+1), \
-                  boundaries=np.linspace(cmin,cmax,cmax+1))
-    cb.set_label('Amplification', labelpad=15, y=0.5, rotation=90, **label_param)
-    cb.ax.yaxis.set_tick_params(**c_tick_param)
-    cb.ax.set_yticks(fontname='monospace')
-    plt.xticks(fontname='monospace')
-    plt.yticks(fontname='monospace')
+      return ax
+    else:
 
-    if savefile != None:
-      fig.savefig(savefile,dpi=300)
+      if 'ylabel' in kwargs :
+        ax.set_ylabel(kwargs['ylabel'])
+      else :
+        ax.set_ylabel('Frequency [Hz]',fontsize=6)
+
+      if 'xlabel' in kwargs :
+        ax.set_xlabel(kwargs['xlabel'])
+      else :
+        ax.set_xlabel('Horizontal profile [m]',fontsize=6)
+
+      if 'title' in kwargs  : ax.set_title(kwargs['title'])
+
+      cb = fig.colorbar(im, shrink=0.6, aspect=10, pad=0.02, ticks=np.linspace(cmin,cmax,cmax+1))
+      cb.set_label('Amplification', labelpad=15, y=0.5, rotation=90)
+      cb.minorticks_off()
+
+      if savefile != None:
+        fig.savefig(savefile,dpi=300)
 
     plt.show()
 
 
-  def plot_meshnode(self):
-    filename = self.directory + 'MeshNodesCoord_sem2d.tab'
-    nel = self.mdict["nel"]
-    n
-    with open(filename,'r') as f:
-      nodes = np.genfromtxt(f)
 
   def plot_source(self,savefile=None,source_name=None):
     #if not isinstance(source_name,str):
@@ -665,7 +733,16 @@ class sem2dpack(object):
     amp = np.genfromtxt(source_file)
     # plot spectra
     dt = amp[1,0]-amp[0,0]
-    spec,f = fourier(amp[:,1],dt,0.025)
+
+    n = amp.shape[0]
+    if n%2:
+      nf = int(n+1)/2
+    else :
+      nf = int(n)/2
+
+    spec = np.fft.fft(amp[:,1])[:nf]
+    f = np.fft.fftfreq(n,dt)[:nf]
+
     fig = plt.figure(figsize=(8,5))
     fig.subplots_adjust(wspace=0.3)
     ax1  = fig.add_subplot(121)
@@ -683,7 +760,6 @@ class sem2dpack(object):
     #plt.tight_layout
     if savefile : plt.savefig(savefile)
     plt.show()
-
 
 
   @staticmethod
@@ -726,32 +802,46 @@ class sem2dpack(object):
 
     return filtered_s
 
-  def plot_Vs(self,vs_br):
+  def plot_Vs(self,vs_br=1000,cmap='jet',axis=None,clim=None):
+    """
+       Makes a scatter plot of the velocities
+
+       :Params
+       -------
+       -  vs_br : Bedrock velocity to be remove from the scatter plot
+    """
+
     #from scipy.spatial.distance import pdist
     vsfile = self.directory + 'Cs_gll_sem2d.tab'
     with open(vsfile,'r') as v:
       vs_int = pd.read_csv(v,sep='\s+',names=['vs','x','z'])
     tmp = vs_int.drop_duplicates()
-    self.vs_int = tmp.drop(tmp[tmp['vs']==vs_br].index)
-    #dx = pdist(self.vs_int['x'][:,None],'cityblock')
-    #dx = np.min(dx[np.nonzero(dx)])
-    #dz = pdist(self.vs_int['z'][:,None],'cityblock')
-    #dz = np.min(dz[np.nonzero(dz)])
-    minx,maxx = np.min(self.vs_int['x']),np.max(self.vs_int['x'])
-    minz,maxz = np.min(self.vs_int['z']),np.max(self.vs_int['z'])
-    l = len(self.vs_int['x'])
-    xi,zi = np.linspace(minx,maxx,l), np.linspace(minz,maxz,l)
-    Xi,Zi = np.meshgrid(xi,zi)
-    #plt.scatter(self.vs_int['x'],self.vs_int['z'],c=self.vs_int['vs'],cmap='jet')
-    #plt.show()
-    x = self.vs_int['x'].values
-    z = self.vs_int['z'].values
-    vs = self.vs_int['vs'].values
-    y = gd((x,z),vs,(Xi,Zi),method='nearest')
-    plt.figure()
-    plt.imshow(y,cmap='jet',aspect='auto')
-    plt.show()
-    db.set_trace()
+    vs_int = tmp.drop(tmp[tmp['vs']==vs_br].index)
+    self.gll_vs = vs_int
+    min_vs , max_vs = np.min(vs_int['vs']), np.max(vs_int['vs'])
+    if axis :
+      divider = make_axes_locatable(axis)
+      cax     = divider.append_axes('right', size='2%', pad=0.2)
+      x = self.rcoord[:,0]
+      #axis.fill_between(x,np.ones(x.shape)*-34,y[7,:],facecolor='#b26400')
+      im = axis.scatter(vs_int['x'], vs_int['z'], c=vs_int['vs'], s=20, cmap='jet')
+      c  = plt.colorbar(im, cax=cax, fraction=0.046, pad=0.06, shrink=0.4)
+      if clim: im.set_clim(*clim)
+      c.ax.tick_params(labelsize=8)
+      c.set_label('Velocity [$ms^{-1}$]')
+      axis.set_xlabel('Horizontal profile [m]')
+      axis.set_ylabel('Depth [m]')
+
+      return axis
+
+    else:
+      # Figure
+      fig , ax = plt.subplots(figsize=(12,4))
+      ax.scatter(vs_int['x'], vs_int['z'], c=vs_int['vs'], s=20, cmap=cmap)
+      plt.show(block=True)
+
+    return self.gll_vs
+
 
   def compute_st(self,frmin=None,fnyq=None):
     """
@@ -777,20 +867,77 @@ class sem2dpack(object):
     self.stockwell = np.array(stock)
     return self.stockwell, (int(frmin),int(fnyq))
 
+  def plot_stockwel(self,sta_number,frmin=0.0,fnyq=10,cmap='seismic',**kwargs):
+    set_rcParams()
+
+    """
+      Plot the Stockwell transform of a seismogram.
+
+      :Inputs
+      -------
+
+       - sta_number [int] :: receiver indice to plot
+       - frmin    [float] :: minimum frequency of stockwell transform
+       - fnyq     [float] :: maximum frequency of stockwell transform
+    """
+
+    # Check input parameters
+    if not isinstance(sta_number,int):
+      try :
+        sta_number = int(sta_number)
+      except :
+        msg = 'Station number must of an integer or of type convertable to an integer'
+        raise Exception(msg)
+
+    # Check if the compute_st method has been called
+    if hasattr(self,'stockwell'):
+      pass
+    else :
+      self.compute_st(frmin=frmin,fnyq=fnyq)
+
+    dx = self.rcoord[1,0] - self.rcoord[0,0]
+
+    if 'label' in kwargs.keys():
+      label = kwargs['label']
+    else:
+      label = None
+
+
+    fig , ax = plt.subplots(2,1,figsize=(10,7),sharex='col')
+    ax[0].plot(self.tvec,self.velocity[:,sta_number],'k',label=label)
+    ax[0].set_ylabel('Velocity [m$s^{-1}$]')
+    ax[0].set_title('Velocity trace at {} m'.format(str(dx * sta_number)))
+    ax[1].imshow(self.stockwell[sta_number,:,:],aspect='auto',extent=[0,np.max(self.tvec),frmin,fnyq],
+                  cmap=cmap,origin='lower')
+    ax[1].set_title('S transform')
+    ax[1].set_xlabel('Time [s]')
+    ax[1].set_ylabel('Frequency [Hz]')
+    if 'key'in kwargs.keys():
+      fig.suptitle(kwargs['key'])
+    try:
+      ax[0].legend()
+    except:
+      pass
+    if 'savefile' in kwargs.keys():
+      fig.savefig(kwargs['savefile'])
+
+    plt.show(block=False)
+
   def compute_pv(self,op='pgv',component=None,freqs=None,n_surf=None):
     component = component or self._component
     n_surf = n_surf or self.nsta
-    if not self.velocity.size:
+    if not hasattr(self,'velocity'):
       print("Reading velocity traces")
-      veloc = self.read_seismo(filter_s=True)[:,:n_surf]
+      veloc = self.read_seismo(filter_s=True,freqs=freqs)[:,:n_surf]
     else:
       veloc = self.velocity[:,:n_surf]
 
     if op == 'pgv':
-      maxs = np.max(np.abs(veloc),axis=0)
+      maxs     = np.max(np.abs(veloc),axis=0)
+      max_args = np.argmax(np.abs(veloc),axis=0) * self.dt
       self.pgv = maxs
 
-      return self.pgv
+      return self.pgv, max_args
     elif op == 'pga':
       # differentiate the velocities
       dt = self.dt
@@ -811,7 +958,7 @@ class sem2dpack(object):
      - T  : fundametal period (in s)
      - dr : damping ratio = damping coeficient / critical damping coefficient
 
-    Output
+    Outputs
      - maxA : peak acceleration response
      - maxV : peak velocity response
      - maxD : peak displacement response
@@ -876,15 +1023,15 @@ class sem2dpack(object):
     return self.maxA
 
 
-  def psa_sac(self,T=[2,6],dr=0.05):
+  def psa_sac(self,T=[2,6],dr=0.05,**kwargs):
     """
     Computes the acceleration spectral response of an accerelation time series in cm/s/s
 
-    !! uses fortran wrapper subroutine fcode 
+    !! uses fortran wrapper subroutine fcode
 
     """
 
-    if not self.velocity.size:
+    if not hasattr(self,'velocity'):
       print("Reading velocity traces")
       veloc = self.read_seismo(filter_s=True)
     else :
@@ -917,12 +1064,14 @@ class sem2dpack(object):
       tind  = np.where(toto == np.min(toto))[0][0]
       ind.append(tind)
 
-    peak_a = maxA[:,ind]
-    return peak_a.T
+    peak_a = maxA[:,ind].T
+    if 'n_surf' in kwargs.keys():
+      return peak_a[:,:int(kwargs['n_surf'])]
+    return peak_a
 
   def select_1d_vs(self,x):
     """
-    Select the 1d vertical velocity profile on a spectral element grid 
+    Select the 1d vertical velocity profile on a spectral element grid
 
     -- Input parameters:
       x  :: array of station numbers
@@ -932,7 +1081,7 @@ class sem2dpack(object):
       sorted_df['vs'] :: Corresponding shear velocity profiles.
     """
     x = np.array(x,dtype=np.int)
-    
+
     vsfile = self.directory + 'Cs_gll_sem2d.tab'
     with open(vsfile,'r') as v:
       vs_int = pd.read_csv(v,sep='\s+',names=['vs','x','z'])
@@ -940,49 +1089,62 @@ class sem2dpack(object):
 
     # Get station postion
     dx          = self.rcoord[1][0] - self.rcoord[0][0]
+
     station_pos = self.rcoord[x,0]
-    
+
     x_coord     = tmp['x']
 
     # Select points with x = station_pos
     x_index     = [ np.where( np.abs((x_coord - i)) <= dx/2 )[0] for i in station_pos ]
     tmp_bis     = [ tmp.iloc[i] for i in x_index ]
-    
+
     # Sort points according to depth (z)
     sorted_df      = [ i.sort_values('z',ascending=True) for i in tmp_bis ]
     sorted_z       = [ i['z'].values for i in sorted_df ]
     sorted_vs      = [ i['vs'].values for i in sorted_df ]
     #print(tmp['z'].max() - tmp['z'].min())
-    
-    return sorted_z, sorted_vs  
 
-  def energy(self,period,option='pow'):
+    return sorted_z, sorted_vs
 
-    tic = time.time()
+  def energy(self,period=None,option='pow',nsurface=None):
 
-    if not self.velocity.size:
+    if not hasattr(self,'velocity'):
       print("Reading velocity traces")
       self.read_seismo(filter_s=True)
- 
-    nsta = self.velocity.shape[1]
-    period_pts = np.int( period / self.dt)
-    n_interval = np.ceil( self.npts / period_pts ).astype(int)
-    pad_npts   = period_pts * n_interval
-    pad_array  = np.zeros((pad_npts,nsta))
-    pad_array[:self.npts,:] = self.velocity
 
-    # Power
-    xsig = np.reshape(pad_array,(n_interval,-1,nsta))
-    if option == 'pow':
-      power = np.sum(xsig*xsig,axis=1) / (self.npts * self.dt)
-    elif option == 'eng':
-      power = np.sum(xsig*xsig,axis=1)
-    print('Comuted in {:.3f}'.format( time.time() - tic ) )
-    p_tvec = np.arange( len(power) ) * period 
-    self.power = power
-    self.p_tvec = p_tvec
+    nsta = nsurface or self.velocity.shape[1]
+    if period:
+      period_pts = np.int( period / self.dt)
+      n_interval = np.ceil( self.npts / period_pts ).astype(int)
+      pad_npts   = period_pts * n_interval
+      pad_array  = np.zeros((pad_npts,nsta))
+      pad_array[:self.npts,:] = self.velocity
 
-    return power , p_tvec
+      # Power
+      xsig = np.reshape(pad_array,(n_interval,-1,nsta))
+      if option == 'pow':
+        power = np.sum(xsig*xsig,axis=1) / (self.npts * self.dt)
+      elif option == 'eng':
+        power = np.sum(xsig*xsig,axis=1)
+
+      p_tvec = np.arange( len(power) ) * period
+
+      self.power = power
+      self.p_tvec = p_tvec
+
+      return self.power, self.p_tvec
+
+    else:
+      if option == 'pow':
+        power = np.sum(self.velocity[:,:nsta],axis=0) / (self.npts * self.dt)
+      elif option == 'eng':
+        power = np.sum(self.velocity[:,:nsta],axis=0)
+      self.power = power
+
+      return self.power
+
+
+
 
   def cc_matrix(self,n_surf=None):
     """
@@ -1006,12 +1168,12 @@ class sem2dpack(object):
 
     maxlag = int( (self.npts * 2 - 1) / 2 )
     tcc = np.arange(-maxlag,maxlag+1) * self.dt
-    
+
     for i, j in zip(tri_indices[0],tri_indices[1]):
       tmp = sp.correlate(self.velocity[:,i],self.velocity[:,j])
       indmax = np.where(tmp==np.max(tmp))[0][0]
       deltat[i,j] = np.abs(tcc[indmax])
-      cc[i,j] = tmp 
+      cc[i,j] = tmp
 
     assert tcc.shape == cc[0,0].shape
 
@@ -1019,19 +1181,48 @@ class sem2dpack(object):
     self.cross_corr = cc
     self.corr_time  = tcc
     self.lag_time   = deltat
-    return
+    return cc, tcc, deltat
+
+
+  def pairwise_dtw(self,q=4,sta_range=[115,315]):
+    """
+      Compute the pair-wise DTW for a range of stations.
+      The DTW distance and path are stored in an array suitable for
+      resistivity-like plots.
+    """
+
+    if not hasattr(self,'decimated_veloc'):
+      self.decimate_sig(q=q,filter_s=True)
+
+    lb, rb = sta_range
+    traces = self.decimated_veloc[:,lb:rb]
+
+    n = traces.shape[1]
+    self.pair_dtw_dist = np.zeros((n-1,2*n-3))
+    self.pair_dtw_path = np.zeros((n-1,2*n-3),dtype=object)
+
+    for j in range(n-1):
+      for i in range(n-1-j):
+        dtw_dist , _ , _ , dtw_path = dtw( traces[:,i], traces[:,i+j+1] , dist=euclidean )
+        self.pair_dtw_dist[j,j+(i*2)] = dtw_dist
+        self.pair_dtw_path = dtw_path
+
+    self.dtw_dist_path = {'dist':self.pair_dtw_dist, 'path':self.pair_dtw_path}
+
+    return self.dtw_dist_path
 
 
 # =================================================
 #
-#    TOP LEVEL FUNCTIONS 
+#    TOP LEVEL FUNCTIONS
 #
 # =================================================
 
 def cc_matrix_static(signal1,signal2,dt):
-  """ Computes the cross correlation matrix of 2 arrays
+  """
+  Computes the cross correlation matrix of 2 arrays
 
-  :Inputs 
+  :Inputs
      -- signal1 [dtype:np.ndarray] :: 1st array of shape (n,m1) to cross-correlate with signal2
      -- signal2 [dtype:np.ndarray] :: 2nd array of shape (n,m2) to cross-correlate with signal1
      -- dt [dtype:np.float]  :: time step of the signal in signal1 and signal2
@@ -1040,24 +1231,24 @@ def cc_matrix_static(signal1,signal2,dt):
      -- cc [dtype:np.ndarray] :: output matrix (m1,m2) containing the cross-correlation values
      -- tc
   """
-  
-  shape1 = signal1.shape 
+
+  shape1 = signal1.shape
   shape2 = signal2.shape
-  
+
   cc = np.zeros((shape1[1],shape2[1]),dtype=object)  # cross correlation array
   deltat = np.zeros(cc.shape)                # array of lag time between signal pairs
   tri_indices = np.triu_indices_from(cc)
 
   maxlag = int( ( shape1[0] * 2 - 1) / 2 )
   tcc = np.arange(-maxlag,maxlag+1) * dt
-  
+
   tic = time.time()
   for i, j in zip(tri_indices[0],tri_indices[1]):
     tmp = sp.correlate(signal1[:,i],signal2[:,j])
     indmax = np.where(tmp==np.max(tmp))[0][0]
     deltat[i,j] = np.abs(tcc[indmax])
-    cc[i,j] = tmp 
-  print('cc2 computed in {:.2f} secs'.format(time.time() - tic))
+    cc[i,j] = tmp
+  print('cross-correlation matrix computed in {:.2f} secs'.format(time.time() - tic))
   assert tcc.shape == cc[0,0].shape
 
 
@@ -1077,7 +1268,6 @@ def plot_tf(tf,freq,xcoord,fmax,savefile=None,cmap='jet',**kwargs):
 
     # Plot
     fig = plt.figure(figsize=(8,6))
-
     if 'clim' in kwargs:
       cmin = kwargs['clim'][0]
       cmax = kwargs['clim'][1]
@@ -1102,7 +1292,7 @@ def plot_tf(tf,freq,xcoord,fmax,savefile=None,cmap='jet',**kwargs):
       ax.set_xlabel(kwargs['xlabel'], fontsize=16,color='black')
     else :
       ax.set_xlabel('Horizontal profile [m]', fontsize=16,color='black')
-    if 'title' in kwargs  : ax.set_title(kwargs['title'],fontsize=18,color='black')
+    if 'title' in kwargs  : ax.set_title(kwargs['title'],fontsize=20,color='black')
 
     ax.tick_params(axis='both',labelsize=12,color='black')
 
@@ -1116,11 +1306,24 @@ def plot_tf(tf,freq,xcoord,fmax,savefile=None,cmap='jet',**kwargs):
 
     plt.show(block=False)
 
-  
+def test_res_fig(directory):
+  obj = sem2dpack(directory,component='x')
+  obj.decimate_sig(q=4,filter_s=True)
+  traces = obj.decimated_veloc[:,115:135]
+
+  n = traces.shape[1]
+  out_array = np.zeros((n-1,2*n-3))
+
+  for j in range(n-1):
+    for i in range(n-1-j):
+      out_array[j,j+(i*2)] = dtw( traces[:,i], traces[:,i+j+1] , dist=euclidean )[0]
+
+
+  db.set_trace()
 
 if __name__ == '__main__':
   dir2 = '/Users/flomin/Desktop/thesis/simulations/Nice/plane_wave/elast_psv/'
-  dir2_obj = sem2dpack(dir2, component='x')
-  dir2_obj.compute_tf(nsurface=421,blim=[350,1750])
-  db.set_trace()
+  obj2 = sem2dpack(dir2,component='x')
+  obj2.pairwise_dtw(sta_range=[115,125])
+
 

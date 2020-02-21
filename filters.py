@@ -19,7 +19,9 @@ Various Seismogram Filtering Functions
  
 from numpy import array, where, fft
 from scipy.fftpack import hilbert
-from scipy.signal import iirfilter, lfilter, remez, convolve, get_window
+from scipy.signal import iirfilter, lfilter, remez, convolve, get_window, butter, freqz
+import matplotlib.pyplot as plt
+import numpy as np
  
  
 def bandpass(data, freqmin, freqmax, dt=0.01, corners=4, zerophase=True):
@@ -115,6 +117,19 @@ def lowpass(data, freq, df=200, corners=4, zerophase=False):
     if zerophase:
         firstpass = lfilter(b, a, data)
         return lfilter(b, a, firstpass[::-1])[::-1]
+    else:
+        return lfilter(b, a, data)
+
+def lowpass2(data,cutoff,df=100,order=4,zerophase=True):
+    nyq = 0.5 * df
+    normal_cutoff = cutoff/nyq
+    b,a  = butter(order,normal_cutoff,btype='low',analog=False)
+    if zerophase:
+        firstpass = lfilter(b,a,data)
+        y = lfilter(b,a,firstpass[::-1])[::-1]
+        #w, h = freqz(b,a,worN=8000)
+        #plt.plot(0.5*df*w/np.pi,np.abs(h),'b')
+        return y
     else:
         return lfilter(b, a, data)
  

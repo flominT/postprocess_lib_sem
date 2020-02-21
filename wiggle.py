@@ -95,7 +95,7 @@ def wiggle_input_check(data, tt, xx, sf, verbose):
     return data, tt, xx, ts
 
 
-def wiggle(data, tt=None, xx=None, color='k', sf=0.15, verbose=False):
+def wiggle(data, tt=None, xx=None, color='k', sf=0.15, verbose=False,axis=None):
     '''Wiggle plot of a sesimic data section
     Syntax examples:
         wiggle(data)
@@ -124,8 +124,11 @@ def wiggle(data, tt=None, xx=None, color='k', sf=0.15, verbose=False):
 
     # Plot data using matplotlib.pyplot
     Ntr = data.shape[1]
-    plt.figure(figsize=(14,6))
-    ax = plt.gca()
+    if axis:
+        ax = axis
+    else:
+        plt.figure(figsize=(12,6))
+        ax = plt.gca()
     for ntr in range(Ntr):
         trace = data[:, ntr]
         offset = xx[ntr]
@@ -139,12 +142,11 @@ def wiggle(data, tt=None, xx=None, color='k', sf=0.15, verbose=False):
                          facecolor=color)
         ax.plot(trace_zi + offset, tt_zi, color)
 
-    #ax.set_xlim(xx[0] - ts, xx[-1] + ts)
-    #ax.set_ylim(tt[0], tt[-1])
-    #ax.set_xlim(25, 175)
-    #ax.set_ylim(0, 4)
+    ax.set_xlim(xx[0] - ts, xx[-1] + ts)
+    ax.set_ylim(tt[0], tt[-1])
 
     ax.invert_yaxis()
+    return ax
 
 
 if __name__ == '__main__':
