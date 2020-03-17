@@ -20,26 +20,40 @@ CASES          = [ "HETE", # Heterogeneous simulations
                    "HOMO", # Reference simulations
                   ]
 
-def create_obj(case="HOMO", freqs=[0.1,10], load=False, save=True, verbose=True, kwargs={}):
+DB_dir         = "/Users/flomin/Desktop/thesis/DataBase/"
+
+def create_obj(case="HOMO", freqs=[0.1,10], load=False, debug=False, verbose=True, param_dict={}):
 
     """
        Function to create, pickle and load sem2dpack objects depending on the case
        parameter.
+       Creates an object database in the $DB_dir directory
 
        Parameters :: [type:default] for input variables
        -------------
 
-         -- case [str:HOMO] : simulation type
+         -- case [str:HOMO]       : simulation type
 
          -- freqs [list:[0.1,10]] : frequency intervals for bandpass filtering the seismograms
                                     The values are used to initialize the state of the sem2dpack.freqs attribute.
                                     No filtering is applied till the sem2dpack.read_seismo method is called with
                                     filter_s = True. freqs values can be updated afterwards.
 
-         -- load [bool:False]  : If load is True, Directly load the saved pickled objects (time saving)
-                                else if load is False, create object.
+         -- load [bool:False]     : If load is True, Directly load the saved pickled objects (time saving)
+                                       else if load is False, create object.
 
-         -- save [bool:True]   : Save the created sem2dpack objects.
+         -- debug [bool:False]    : If debug=True and load=False, does not save the objects.
+
+         -- param_dict  [dict]    : Input dictionary of parameters of the database.
+                    Necessary keys are:
+
+                    - PROJ_NAME  : project name
+                    - REF_SIMUL_TYPE [tuple] : Simulation types (visla_sh, visla_psv, elast_sh or elast_psv)
+                    - HETE_SIMUL_TYPE [Dictionary] : Stochastic simulation types {'sim_type':'cor_len',}
+                    - REF_DIR    : Reference simulation directory
+                    - HETE_DIR   : Stochastic simulation directories
+                    - N_SIMUL    : Number of simulations per stochastic simulation
+
     """
 
     assert case in CASES, "Wrong case parameter given : valid cases are {:s}".format( \
@@ -47,14 +61,18 @@ def create_obj(case="HOMO", freqs=[0.1,10], load=False, save=True, verbose=True,
 
     tic  = time.time()
 
+    # create project directory if it doesn't exist
+    proj_dir = DB_dir + param_dict['PROJ_NAME'] + "/"
+    make_dir(proj_dir)
+
     if not load :
 
         dict_out = {}
 
         if case == "HOMO":
             #------- Reference directories ---------------------------------------
-            for key in kwargs["SIMUL_TYPE"].keys():
-                directory   = kwargs["REF_DIR"] + key + '/'
+            for key in param_dict["REF_SIMUL_TYPE"]:
+                directory   = param_dict["REF_DIR"] + key + '/'
 
                 if not os.path.isdir(directory):
                     msg = '{} does not exist !! \n Skipping ....'.format(directory)
@@ -67,16 +85,16 @@ def create_obj(case="HOMO", freqs=[0.1,10], load=False, save=True, verbose=True,
 
         else :
 
-            for key in kwargs["SIMUL_TYPE"].keys():
+            for key in param_dict["HETE_SIMUL_TYPE"].keys():
 
                 dict_out[key] = {}
                 compo = get_compo(key)
-                for cl in kwargs["SIMUL_TYPE"][key]:
+                for cl in param_dict["HETE_SIMUL_TYPE"][key]:
 
                     if verbose:
                       print('Creating objects for {}'.format(cl))
 
-                    tmp_dir = kwargs["HETE_DIR"] + cl + '/' + key
+                    tmp_dir = param_dict["HETE_DIR"] + key + '/' + cl
 
                     if not os.path.isdir(tmp_dir):
                         msg = '{} does not exist !! \n Skipping ....'.format(tmp_dir)
@@ -88,7 +106,7 @@ def create_obj(case="HOMO", freqs=[0.1,10], load=False, save=True, verbose=True,
                         # Check the number of simulations and redefine N_SIMUL correspondinly
 
                         sim_num = len(glob.glob(tmp_dir + '/n[1-9]*'))
-                        if sim_num != kwargs["N_SIMUL"]:
+                        if sim_num != param_dict["N_SIMUL"]:
                             print(" {} contains {} simulations \n".format(tmp_dir,sim_num))
                             print("Redefining global N_SIMUL to {}".format(sim_num))
 
@@ -100,39 +118,46 @@ def create_obj(case="HOMO", freqs=[0.1,10], load=False, save=True, verbose=True,
 
 
         #-------------- Save -----------------------------------------------------
+        if not debug:
+            save_file_dir   =  proj_dir + case
+            make_dir(save_file_dir)
 
-        save_file_dir   =  kwargs["PICKLE_DIR"] + '/' + case
-        make_dir(save_file_dir)
+            if case == 'HOMO':
+                sim_type = param_dict["REF_SIMUL_TYPE"]
+            else:
+                sim_type = param_dict["HETE_SIMUL_TYPE"].keys()
 
-        sim_type = kwargs["SIMUL_TYPE"].keys()
-
-        for key in sim_type :
-            save_file_name = save_file_dir + '/' + key + '_object.pk'
-            with open(save_file_name, 'wb') as f:
-                pickle.dump(dict_out[key],f,protocol=pickle.HIGHEST_PROTOCOL)
+            for key in sim_type :
+                if bool(dict_out[key]):
+                    save_file_name = save_file_dir + '/' + key + '_object.pk'
+                    with open(save_file_name, 'wb') as f:
+                        pickle.dump(dict_out[key],f,protocol=pickle.HIGHEST_PROTOCOL)
     else:
 
-        try :
-            #-- Load pickles objects --------------------------------------------
+      #-- Load pickles objects --------------------------------------------
 
-            dict_out = {}
+      dict_out = {}
 
-            sim_type = kwargs["SIMUL_TYPE"].keys()
+      if case == 'HOMO':
+          sim_type = param_dict["REF_SIMUL_TYPE"]
+      else:
+          sim_type = param_dict["HETE_SIMUL_TYPE"].keys()
 
-            #-- Load pickles objects --------------------------------------------
-            for key in sim_type :
-              save_file_dir  = kwargs["PICKLE_DIR"] + case
-              save_file_name = save_file_dir + '/' + key + '_object.pk'
+      #-- Load pickles objects --------------------------------------------
+      for key in sim_type :
+        save_file_dir  = proj_dir + case
+        save_file_name = save_file_dir + '/' + key + '_object.pk'
 
-              with open(save_file_name, 'rb') as f:
-                  loaded_obj = pickle.load(f)
-              if case == "HETE":
-                dict_out[key] = {cor_l : loaded_obj[cor_l] for cor_l in kwargs["SIMUL_TYPE"][key]}
-              else:
-                dict_out[key] = loaded_obj
+        try:
+          with open(save_file_name, 'rb') as f:
+              loaded_obj = pickle.load(f)
+          if case == "HETE":
+            dict_out[key] = {cor_l : loaded_obj[cor_l] for cor_l in param_dict["HETE_SIMUL_TYPE"][key]}
+          else:
+            dict_out[key] = loaded_obj
         except:
-            msg = 'Could not load objects , Run function with load = False before !!'
-            raise Exception(msg)
+          print("No SEM2DPACK object file for {} in database".format(key.upper()))
+          pass
 
 
     print('Objects created or loaded in {:.3f} secs'.format(time.time() - tic))
