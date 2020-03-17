@@ -93,9 +93,12 @@ def set_rcParams():
   plt.rcParams['patch.linewidth']       = 0.5
   plt.rcParams['text.usetex']           = True
 
-def fft_func(sig,dt):
+def fourier(sig,dt,detrend=False):
     import numpy as np
-    detrend = np.subtract(sig,np.mean(sig,axis=0)[np.newaxis,:])
+    if detrend:
+      detrend = np.subtract(sig,np.mean(sig))
+    else:
+      detrend = sig
     s = np.abs(np.fft.fft(detrend,axis=0))
 
     n = detrend.shape[0]
@@ -106,7 +109,7 @@ def fft_func(sig,dt):
     else:
       nf = int(n/2)
     
-    fft_sig = s[:nf,:]
+    fft_sig = s[:nf]
     fft_freq  = f[:nf]
 
     return fft_sig, fft_freq

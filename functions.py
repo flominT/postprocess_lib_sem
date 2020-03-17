@@ -14,6 +14,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 sys.path.append('/Users/flomin/Desktop/cubit/Nice/scripts')
 from test_bis import plot_nice, read_profile
 import numpy as np
+from tf_misfit import pm, em
 
 CASES          = [ "HETE", # Heterogeneous simulations
                    "HOMO", # Reference simulations
@@ -52,7 +53,7 @@ def create_obj(case="HOMO", freqs=[0.1,10], load=False, save=True, verbose=True,
 
         if case == "HOMO":
             #------- Reference directories ---------------------------------------
-            for key in kwargs["REF_SIMUL_TYPE"]:
+            for key in kwargs["SIMUL_TYPE"].keys():
                 directory   = kwargs["REF_DIR"] + key + '/'
 
                 if not os.path.isdir(directory):
@@ -66,11 +67,11 @@ def create_obj(case="HOMO", freqs=[0.1,10], load=False, save=True, verbose=True,
 
         else :
 
-            for key in kwargs["HETE_SIMUL_TYPE"]:
+            for key in kwargs["SIMUL_TYPE"].keys():
 
                 dict_out[key] = {}
                 compo = get_compo(key)
-                for cl in kwargs["COR_LEN"]:
+                for cl in kwargs["SIMUL_TYPE"][key]:
 
                     if verbose:
                       print('Creating objects for {}'.format(cl))
@@ -103,10 +104,7 @@ def create_obj(case="HOMO", freqs=[0.1,10], load=False, save=True, verbose=True,
         save_file_dir   =  kwargs["PICKLE_DIR"] + '/' + case
         make_dir(save_file_dir)
 
-        if case == "HOMO":
-            sim_type = kwargs["REF_SIMUL_TYPE"]
-        else:
-            sim_type = kwargs["HETE_SIMUL_TYPE"]
+        sim_type = kwargs["SIMUL_TYPE"].keys()
 
         for key in sim_type :
             save_file_name = save_file_dir + '/' + key + '_object.pk'
@@ -119,10 +117,7 @@ def create_obj(case="HOMO", freqs=[0.1,10], load=False, save=True, verbose=True,
 
             dict_out = {}
 
-            if case == "HOMO":
-                sim_type = kwargs["REF_SIMUL_TYPE"]
-            else:
-                sim_type = kwargs["HETE_SIMUL_TYPE"]
+            sim_type = kwargs["SIMUL_TYPE"].keys()
 
             #-- Load pickles objects --------------------------------------------
             for key in sim_type :
@@ -132,7 +127,7 @@ def create_obj(case="HOMO", freqs=[0.1,10], load=False, save=True, verbose=True,
               with open(save_file_name, 'rb') as f:
                   loaded_obj = pickle.load(f)
               if case == "HETE":
-                dict_out[key] = {cor_l : loaded_obj[cor_l] for cor_l in kwargs["COR_LEN"]}
+                dict_out[key] = {cor_l : loaded_obj[cor_l] for cor_l in kwargs["SIMUL_TYPE"][key]}
               else:
                 dict_out[key] = loaded_obj
         except:
@@ -223,6 +218,8 @@ class process_sim(object):
     if key :
         hete_trace = {k : hete_trace[k] for k in key}
 
+    self.hete_trace = hete_trace
+    self.ref_trace  = ref_trace
     return ref_trace, hete_trace
 
   def plot_ref_wiggle(self,nsta,stride,key=None,naxis=False,save=False,fig_title=''):
@@ -249,7 +246,9 @@ class process_sim(object):
             ax1.set_ylabel('Time [s]')
             ref_fig.suptitle(fig_title[k], y=0.98)
             if save:
-                savefile = self.save_dir + k + '_wiggle.png'
+                relative_dir = self.save_dir + '/wiggles/' + k + '/'
+                make_dir(relative_dir)
+                savefile = relative_dir + k + '_wiggle.png'
                 ref_fig.savefig(savefile, bbox_inches='tight', pad_inches=0.01)
     else:
         for k in key:
@@ -258,7 +257,7 @@ class process_sim(object):
     return
 
   def plot_hete_wiggle(self,nsta,stride,key=None,naxis=False,save=False,
-                        fig_title='', axis_title=''):
+                        fig_title='', axis_title='', nreal=7):
     set_rcParams()
     x,y = read_profile()
 
@@ -278,21 +277,64 @@ class process_sim(object):
                 cax     = divider.append_axes('right',size='3%',pad=0.2)
                 cax.remove()
 
-                ax1 = self.hete_obj[k][cor_l][7].plot_wiggle(ssta=nsta,stride=stride,axis=ax1)
-                ax2 = self.hete_obj[k][cor_l][7].plot_Vs(vs_br=1000,cmap='jet',axis=ax2,clim=[90,390])
-                ax2.fill_between(x,np.ones(x.shape)*-34,y[7,:],facecolor='#b26400')
+                ax1 = self.hete_obj[k][cor_l][nreal].plot_wiggle(ssta=nsta, sf=0.1, stride=stride,axis=ax1)
+                ax2 = self.hete_obj[k][cor_l][nreal].plot_Vs(vs_br=1000,cmap='jet',axis=ax2,clim=[90,390])
+                ax2.fill_between(x,np.ones(x.shape)*-34,y[nreal,:],facecolor='#b26400')
                 ax2.set_xlim(min(x),max(x))
+                ax1.set_ylim(10,0)
                 ax1.set_ylabel('Time [s]')
                 hete_fig.suptitle(fig_title[k], y=0.998)
                 ax1.set_title(axis_title[cor_l])
 
                 if save:
-                    savefile = self.save_dir + k + '_' + cor_l + '_wiggle.png'
+                    relative_dir = self.save_dir + '/wiggles/' + k + '/'
+                    make_dir(relative_dir)
+                    savefile = relative_dir + k + '_' + cor_l + '_wiggle.png'
                     hete_fig.savefig(savefile, bbox_inches='tight', pad_inches=0.02)
             else:
-                self.hete_obj[k][cor_l][7].plot_wiggle(ssta=nsta,stride=stride)
+                self.hete_obj[k][cor_l][nreal].plot_wiggle(ssta=nsta,stride=stride)
 
-    plt.show()
+    plt.show(block=True)
+
+  def em_pm(self, nsta, key=None, pickle_load=False):
+    try:
+        assert isinstance(key,(list,tuple))
+    except:
+        if key:
+            key = [key,]
+        else:
+            key = self.hete_obj.keys()
+
+    make_dir(self.pickle_dir + 'EP_misfit/')
+    pickle_name = self.pickle_dir + 'em_pm.pk'
+
+    dt = self.ref_obj[key[0]].dt
+    Em = {}
+    Pm = {}
+
+    if not pickle_load:
+        for k in key:
+            Em[k] = {}
+            Pm[k] = {}
+            for cor_l in self.hete_trace[k].keys():
+                Em[k][cor_l] = [em(self.ref_trace[k][:,:nsta].T,self.hete_trace[k][cor_l][i][:,:nsta].T,dt=dt,st2_isref=False) 
+                                  for i in range(len(self.hete_trace[k][cor_l]))]
+                Pm[k][cor_l] = [pm(self.ref_trace[k][:,:nsta].T,self.hete_trace[k][cor_l][i][:,:nsta].T,dt=dt,st2_isref=False) 
+                                  for i in range(len(self.hete_trace[k][cor_l]))]
+
+        pickle_ep = {'Em':Em, 'Pm':Pm}
+
+        with open(pickle_name,'wb') as f:
+            pickle.dump(pickle_ep, f, protocol=pickle.HIGHEST_PROTOCOL)
+    else:
+        with open(pickle_name,'rb') as f:
+            pickle_ep = pickle.load(f)
+        Em = pickle_ep['Em']
+        Pm = pickle_ep['Pm']
+
+    Em_stats = self.compute_stats(Em)
+    Pm_stats = self.compute_stats(Pm)
+    return Em, Pm, Em_stats, Pm_stats
 
 
   def TF(self, key=None, save=False, tf_param=None, plot_param=None):
@@ -396,11 +438,6 @@ class process_sim(object):
     hete_stats = self.compute_stats(hete_pgv)
 
     return ref_pgv, hete_pgv, hete_stats
-
-
-  def rms_velocity(self,key='visla_sh'):
-
-    return
 
 
   def compute_psa(self, key='elast_sh', T=[2, 6], save=None, plot_op = 'default', pickle_load=True):
@@ -1536,7 +1573,7 @@ class process_sim(object):
 
     obj_keys = list(data.keys())
 
-    params = ['mean','median','min','max','perc']
+    params = {'mean':'mean','median':'median','min':'minimum','max':'maiximum','perc':'perc'}
 
     if option:
 
@@ -1584,16 +1621,17 @@ class process_sim(object):
             stats[key][cor_l] = {}
             stats[key][cor_l].fromkeys(params)
             array = np.array(data[key][cor_l])
-            for para in params:
+            for para,value  in params.items():
               if para == 'perc':
                 perc10 = np.percentile(array,16,axis=0)
                 perc80 = np.percentile(array,84,axis=0)
                 median = np.median(array,axis=0)
-                stats[key][cor_l][para] = (perc80 - perc10) / ( 2 * median)
+                stats[key][cor_l][value] = (perc80 - perc10) / ( 2 * median)
+                stats[key][cor_l]['84perc'] = perc80
               elif para == 'median':
-                stats[key][cor_l][para] = np.median(array,axis=0)
+                stats[key][cor_l][value] = np.median(array,axis=0)
               else:
-                stats[key][cor_l][para] = getattr(array,para)(axis=0)
+                stats[key][cor_l][value] = getattr(array,para)(axis=0)
 
       elif isinstance(data[obj_keys[0]],list):
         for cor_l in data:
@@ -1601,16 +1639,17 @@ class process_sim(object):
           stats[cor_l].fromkeys(params)
           array = np.array(data[cor_l])
 
-          for para in params:
+          for para,value  in params.items():
             if para == 'perc':
               perc10 = np.percentile(array,16,axis=0)
               perc80 = np.percentile(array,84,axis=0)
               median = np.median(array,axis=0)
-              stats[cor_l][para] = (perc80 - perc10) / ( 2 * median)
+              stats[cor_l][value] = (perc80 - perc10) / ( 2 * median)
+              stats[cor_l]['84perc'] = perc80
             elif para == 'median':
-              stats[cor_l][para] = np.median(array,axis=0)
+              stats[cor_l][value] = np.median(array,axis=0)
             else:
-              stats[cor_l][para] = getattr(array,para)(axis=0)
+              stats[cor_l][value] = getattr(array,para)(axis=0)
 
     return stats
 

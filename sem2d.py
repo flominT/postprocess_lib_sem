@@ -819,6 +819,7 @@ class sem2dpack(object):
     vs_int = tmp.drop(tmp[tmp['vs']==vs_br].index)
     self.gll_vs = vs_int
     min_vs , max_vs = np.min(vs_int['vs']), np.max(vs_int['vs'])
+    db.set_trace()
     if axis :
       divider = make_axes_locatable(axis)
       cax     = divider.append_axes('right', size='2%', pad=0.2)
