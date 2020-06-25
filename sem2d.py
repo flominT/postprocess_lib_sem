@@ -200,7 +200,7 @@ class sem2dpack(object):
       field = np.fromfile(f,np.float32)
     return field
 
-  def read_seismo(self,filter_s=False,freqs=None):
+  def read_seismo(self,filter_s=False,freqs=None,verbose=False):
     """
        Reads the seismograms or traces the simulations
 
@@ -241,6 +241,8 @@ class sem2dpack(object):
 
       if filter_s :
         freqs = freqs or self._freqs
+        if verbose:
+          print('*** Filtering between {} and {} Hz'.format(freqs[0],freqs[1]))
         self.velocity = self.filter_seismo(self.velocity,freqs=freqs,ftype='bandpass',dt=self.dt)
         self.velocity_z = self.filter_seismo(self.velocity_z,freqs=freqs,ftype='bandpass',dt=self.dt)
         return self.velocity
@@ -264,6 +266,8 @@ class sem2dpack(object):
 
       if filter_s :
         freqs = freqs or self._freqs
+        if verbose:
+          print('*** Filtering between {} and {} Hz'.format(freqs[0],freqs[1]))
         self.velocity = self.filter_seismo(self.velocity,freqs=freqs,ftype='bandpass',dt=self.dt)
         return self.velocity
 

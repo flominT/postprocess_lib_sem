@@ -37,7 +37,7 @@ def insert_zeros(trace, tt=None):
     return trace_zi, tt_zi
 
 
-def wiggle_input_check(data, tt, xx, sf, verbose):
+def wiggle_input_check(data, tt, xx, sf, norm, verbose):
     ''' Helper function for wiggle() and traces() to check input
     '''
 
@@ -90,12 +90,15 @@ def wiggle_input_check(data, tt, xx, sf, verbose):
     ts = np.min(np.diff(xx))
 
     # Rescale data by trace_spacing and strech_factor
-    data_max_std = np.max(np.std(data, axis=0))
+    data_max_std = norm or np.max(np.std(data, axis=0))
+    #data_max_std = 0.011  # Original value SH
+    #data_max_std = 0.001
+    #data_max_std = 0.008 # Original value PSV
     data = data / data_max_std * ts * sf
     return data, tt, xx, ts
 
 
-def wiggle(data, tt=None, xx=None, color='k', sf=0.15, verbose=False,axis=None):
+def wiggle(data, tt=None, xx=None, color='k', sf=0.15, norm = None, verbose=False,axis=None):
     '''Wiggle plot of a sesimic data section
     Syntax examples:
         wiggle(data)
@@ -120,7 +123,7 @@ def wiggle(data, tt=None, xx=None, color='k', sf=0.15, verbose=False,axis=None):
     '''
 
     # Input check
-    data, tt, xx, ts = wiggle_input_check(data, tt, xx, sf, verbose)
+    data, tt, xx, ts = wiggle_input_check(data, tt, xx, sf, norm, verbose)
 
     # Plot data using matplotlib.pyplot
     Ntr = data.shape[1]
@@ -137,9 +140,9 @@ def wiggle(data, tt=None, xx=None, color='k', sf=0.15, verbose=False,axis=None):
             print(offset)
 
         trace_zi, tt_zi = insert_zeros(trace, tt)
-        ax.fill_betweenx(tt_zi, offset, trace_zi + offset,
-                         where=trace_zi >= 0,
-                         facecolor=color)
+        #ax.fill_betweenx(tt_zi, offset, trace_zi + offset,
+        #                 where=trace_zi >= 0,
+        #                 facecolor=color)
         ax.plot(trace_zi + offset, tt_zi, color)
 
     ax.set_xlim(xx[0] - ts, xx[-1] + ts)
@@ -152,4 +155,4 @@ def wiggle(data, tt=None, xx=None, color='k', sf=0.15, verbose=False,axis=None):
 if __name__ == '__main__':
     data = np.random.randn(1000, 100)
     wiggle(data)
-    plt.show()
+    plt.show(block=True)

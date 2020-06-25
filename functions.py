@@ -11,10 +11,14 @@ import os
 import glob
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-sys.path.append('/Users/flomin/Desktop/cubit/Nice/scripts')
+sys.path.append('/Users/flomin/Desktop/thesis/cubit/Nice/scripts')
 from test_bis import plot_nice, read_profile
 import numpy as np
 from tf_misfit import pm, em
+from dtaidistance import dtw
+#from dtw import accelerated_dtw as dtw
+#from scipy.spatial.distance import euclidean
+from scipy.stats import gmean
 
 CASES          = [ "HETE", # Heterogeneous simulations
                    "HOMO", # Reference simulations
@@ -56,6 +60,9 @@ def create_obj(case="HOMO", freqs=[0.1,10], load=False, debug=False, verbose=Tru
 
     """
 
+    # mandatory parameters keys
+    param_keys = set(['PROJ_NAME','REF_SIMUL_TYPE','HETE_SIMUL_TYPE','REF_DIR','HETE_DIR'])
+    assert param_keys.issubset(param_dict.keys())
     assert case in CASES, "Wrong case parameter given : valid cases are {:s}".format( \
            ','.join([c for c in CASES]) )
 
@@ -65,73 +72,88 @@ def create_obj(case="HOMO", freqs=[0.1,10], load=False, debug=False, verbose=Tru
     proj_dir = DB_dir + param_dict['PROJ_NAME'] + "/"
     make_dir(proj_dir)
 
+    save_file_dir   =  proj_dir + case
+    make_dir(save_file_dir)
+
     if not load :
 
         dict_out = {}
 
         if case == "HOMO":
             #------- Reference directories ---------------------------------------
-            for key in param_dict["REF_SIMUL_TYPE"]:
-                directory   = param_dict["REF_DIR"] + key + '/'
+            # Check if directory exist
+            
+            save_file_name = save_file_dir + '/' + param_dict['PROJ_NAME'] + '_REF_objects.pk'
 
-                if not os.path.isdir(directory):
-                    msg = '{} does not exist !! \n Skipping ....'.format(directory)
-                    print(msg)
-                    pass
-                else:
-                    #------- Create objects --------------------------------------------
-                    compo = get_compo(key)
-                    dict_out[key] = sem2dpack(directory,freqs=freqs,component=compo)
+            if file_exist(save_file_name):
+                overwrite = input("Do you want to overwrite {} [Y/N]?".format(param_dict['PROJ_NAME'] + '_REF_objects.pk'))
+            else :
+                overwrite = 'Y'
+
+            if overwrite.upper() == 'Y':
+                for key in param_dict["REF_SIMUL_TYPE"]:
+                    directory   = param_dict["REF_DIR"] + key + '/'
+
+                    if not os.path.isdir(directory):
+                        msg = '{} does not exist !! \n Skipping ....'.format(directory)
+                        print(msg)
+                        pass
+                    else:
+                        #------- Create objects --------------------------------------------
+                        compo = get_compo(key)
+                        dict_out[key] = sem2dpack(directory,freqs=freqs,component=compo)
+
+                #------- Save -------
+                if not debug :
+                    with open(save_file_name, 'wb') as f:
+                        pickle.dump(dict_out,f,protocol=pickle.HIGHEST_PROTOCOL)
 
         else :
 
             for key in param_dict["HETE_SIMUL_TYPE"].keys():
+                save_file_name = save_file_dir + '/' + key + '_object.pk'
+                if file_exist(save_file_name):
+                    overwrite = input("Do you want to overwrite {} [Y/N]?".format(key + '_objects.pk'))
+                else :
+                    overwrite = 'Y'
 
-                dict_out[key] = {}
-                compo = get_compo(key)
-                for cl in param_dict["HETE_SIMUL_TYPE"][key]:
+                if overwrite.upper() == 'Y':  
+                    dict_out[key] = {}
+                    compo = get_compo(key)
+                    for cl in param_dict["HETE_SIMUL_TYPE"][key]:
 
-                    if verbose:
-                      print('Creating objects for {}'.format(cl))
+                        if verbose:
+                          print('{} : Creating objects for {}'.format(key,cl))
 
-                    tmp_dir = param_dict["HETE_DIR"] + key + '/' + cl
+                        tmp_dir = param_dict["HETE_DIR"] + key + '/' + cl
 
-                    if not os.path.isdir(tmp_dir):
-                        msg = '{} does not exist !! \n Skipping ....'.format(tmp_dir)
-                        print(msg)
-                        pass
-                    else:
-                        dict_out[key][cl] = []
+                        if not os.path.isdir(tmp_dir):
+                            msg = '{} does not exist !! \n Skipping ....'.format(tmp_dir)
+                            print(msg)
+                            pass
+                        else:
+                            dict_out[key][cl] = []
 
-                        # Check the number of simulations and redefine N_SIMUL correspondinly
+                            # Check the number of simulations and redefine N_SIMUL correspondinly
 
-                        sim_num = len(glob.glob(tmp_dir + '/n[1-9]*'))
-                        if sim_num != param_dict["N_SIMUL"]:
-                            print(" {} contains {} simulations \n".format(tmp_dir,sim_num))
-                            print("Redefining global N_SIMUL to {}".format(sim_num))
+                            sim_dir = glob.glob(tmp_dir + '/n[0-9]*')
+                            sim_num = len(sim_dir)
+                            
+                            if sim_num != param_dict["N_SIMUL"]:
+                                print(" {} contains {} simulations \n".format(tmp_dir,sim_num))
+                                print("Redefining global N_SIMUL to {}".format(sim_num))
 
-                        for i in range(sim_num):
+                            for direc in sim_dir:
 
-                            directory = tmp_dir + '/n' + str(i+1) + '/'
+                                directory = direc + '/'
 
-                            dict_out[key][cl].append(sem2dpack(directory,freqs=freqs,component=compo))
+                                dict_out[key][cl].append(sem2dpack(directory,freqs=freqs,component=compo))
 
-
-        #-------------- Save -----------------------------------------------------
-        if not debug:
-            save_file_dir   =  proj_dir + case
-            make_dir(save_file_dir)
-
-            if case == 'HOMO':
-                sim_type = param_dict["REF_SIMUL_TYPE"]
-            else:
-                sim_type = param_dict["HETE_SIMUL_TYPE"].keys()
-
-            for key in sim_type :
-                if bool(dict_out[key]):
-                    save_file_name = save_file_dir + '/' + key + '_object.pk'
-                    with open(save_file_name, 'wb') as f:
-                        pickle.dump(dict_out[key],f,protocol=pickle.HIGHEST_PROTOCOL)
+                    if not debug:
+                        if bool(dict_out[key]):
+                            if overwrite.upper() == 'Y':
+                                with open(save_file_name, 'wb') as f:
+                                    pickle.dump(dict_out[key],f,protocol=pickle.HIGHEST_PROTOCOL)
     else:
 
       #-- Load pickles objects --------------------------------------------
@@ -139,25 +161,30 @@ def create_obj(case="HOMO", freqs=[0.1,10], load=False, debug=False, verbose=Tru
       dict_out = {}
 
       if case == 'HOMO':
-          sim_type = param_dict["REF_SIMUL_TYPE"]
+          save_file_dir  = proj_dir + case
+          save_file_name = save_file_dir + '/' + param_dict['PROJ_NAME'] + '_REF_objects.pk'
+          try:
+              with open(save_file_name, 'rb') as f:
+                  dict_out = pickle.load(f)
+          except:
+              print("No SEM2DPACK object file for {} in database".format(key.upper()))
+              pass 
       else:
           sim_type = param_dict["HETE_SIMUL_TYPE"].keys()
 
-      #-- Load pickles objects --------------------------------------------
-      for key in sim_type :
-        save_file_dir  = proj_dir + case
-        save_file_name = save_file_dir + '/' + key + '_object.pk'
+          #-- Load pickles objects --------------------------------------------
+          for key in sim_type :
+            save_file_dir  = proj_dir + case
+            save_file_name = save_file_dir + '/' + key + '_object.pk'
 
-        try:
-          with open(save_file_name, 'rb') as f:
-              loaded_obj = pickle.load(f)
-          if case == "HETE":
-            dict_out[key] = {cor_l : loaded_obj[cor_l] for cor_l in param_dict["HETE_SIMUL_TYPE"][key]}
-          else:
-            dict_out[key] = loaded_obj
-        except:
-          print("No SEM2DPACK object file for {} in database".format(key.upper()))
-          pass
+            try:
+              with open(save_file_name, 'rb') as f:
+                  loaded_obj = pickle.load(f)
+              dict_out[key] = loaded_obj
+
+            except:
+              print("No SEM2DPACK object file for {} in database".format(key.upper()))
+              pass
 
 
     print('Objects created or loaded in {:.3f} secs'.format(time.time() - tic))
@@ -228,98 +255,104 @@ class process_sim(object):
     self.pickle_dir = pickle_dir
     self.save_dir   = save_dir
 
-  def time_traces(self,key=None):
+  def time_traces(self,key=None,scale=False,freqs=None):
     try :
         assert isinstance(key,(list,tuple))
     except:
         if key:
-            key = [key,]
+            keys = [key,]
         else:
-            key = list(self.ref_obj.keys())
-
-    ref_trace  = {k : self.ref_obj[k].read_seismo() for k in key}
-    hete_trace = self.apply_method(self.hete_obj,'read_seismo',params={})
+            keys = list(self.ref_obj.keys())
+            
+    ref_trace  = {k : self.ref_obj[k].read_seismo(filter_s=True,scale=scale,freqs=freqs) for k in keys}
+    hete_trace = self.apply_method(self.hete_obj,'read_seismo',params={'filter_s':True,'scale':scale,'freqs':freqs})
 
     if key :
-        hete_trace = {k : hete_trace[k] for k in key}
+        hete_trace = {k : hete_trace[k] for k in keys}
 
     self.hete_trace = hete_trace
     self.ref_trace  = ref_trace
     return ref_trace, hete_trace
 
-  def plot_ref_wiggle(self,nsta,stride,key=None,naxis=False,save=False,fig_title=''):
+  def plot_ref_wiggle(self,nsta,stride,sf=0.15,key=None, norm=None, naxis=False,
+                      save_dir=None,plot_func=None,axis_title='',fig_title='',**kwargs):
     set_rcParams()
-
-    try:
-        assert isinstance(key,(list,tuple))
-    except:
-        if key:
-            key = [key,]
-        else:
-            key = self.hete_obj.keys()
 
     if naxis:
         # Reference wiggle
-        for k in key:
-            ref_fig, ax1, ax2 = self.subplot_2ax()
+  
+        ref_fig, ax1, ax2 = self.subplot_2ax()
+        divider = make_axes_locatable(ax1)
+        cax     = divider.append_axes('right',size='3%',pad=0.2)
+        cax.remove()
+
+        ax1 = self.ref_obj[key].plot_wiggle(ssta=nsta,stride=stride,sf=sf, norm=norm, axis=ax1)
+        if plot_func:
+          plot_func(axis=ax2)
+        else:
+          if key[6:8] == 'ho':
+              plot_nice(op='homo',axis=ax2, init=True)
+          elif key[6:8] == 'ta':
+              plot_nice(op='tabular',axis=ax2, init=True)
+          else:
+              plot_nice(op='default',axis=ax2, init=True)
+          ax2.set_ylim([-34,39])
+        if 'ylim' in kwargs.keys():
+            ax1.set_ylim(kwargs['ylim'][0],kwargs['ylim'][1])
+        else:
+            ax1.set_ylim(5,0)
+        ax1.set_ylabel('Time [s]',fontsize=14, labelpad=19)
+        ax1.tick_params(axis='both', which='major', labelsize=12, labelbottom=False)
+        #ref_fig.suptitle(fig_title[key],y=0.985, x=0.48, fontsize=18)
+        ax1.set_title(axis_title, fontsize=17)
+        if save_dir :
+            save_file  = save_dir + 'ref_' + key + '_wiggle.png'
+            ref_fig.savefig(save_file, dpi=300, bbox_inches='tight', pad_inches=0.05)
+      
+    else:
+        self.ref_obj[key].plot_wiggle(ssta=nsta,stride=stride)
+
+        return
+
+  def plot_hete_wiggle(self,nsta,stride,sf=0.15, key=None, norm=None, naxis=False,
+                      save_dir=None, plot_func=None,fig_title='', 
+                      axis_title='', nreal=7,clim=None,**kwargs):
+    set_rcParams()
+    x,y = read_profile()
+
+    for cor_l in self.hete_obj[key].keys():
+        if naxis:
+            hete_fig , ax1, ax2 = self.subplot_2ax()
             divider = make_axes_locatable(ax1)
             cax     = divider.append_axes('right',size='3%',pad=0.2)
             cax.remove()
 
-            ax1 = self.ref_obj[k].plot_wiggle(ssta=nsta,stride=stride,axis=ax1)
-            plot_nice(op='norm',axis=ax2)
-            ax1.set_ylabel('Time [s]')
-            ref_fig.suptitle(fig_title[k], y=0.98)
-            if save:
-                relative_dir = self.save_dir + '/wiggles/' + k + '/'
-                make_dir(relative_dir)
-                savefile = relative_dir + k + '_wiggle.png'
-                ref_fig.savefig(savefile, bbox_inches='tight', pad_inches=0.01)
-    else:
-        for k in key:
-            self.ref_obj[k].plot_wiggle(ssta=nsta,stride=stride)
-
-    return
-
-  def plot_hete_wiggle(self,nsta,stride,key=None,naxis=False,save=False,
-                        fig_title='', axis_title='', nreal=7):
-    set_rcParams()
-    x,y = read_profile()
-
-    try:
-        assert isinstance(key,(list,tuple))
-    except:
-        if key:
-            key = [key,]
-        else:
-            key = self.hete_obj.keys()
-
-    for k in key:
-        for cor_l in self.hete_obj[k].keys():
-            if naxis:
-                hete_fig , ax1, ax2 = self.subplot_2ax()
-                divider = make_axes_locatable(ax1)
-                cax     = divider.append_axes('right',size='3%',pad=0.2)
-                cax.remove()
-
-                ax1 = self.hete_obj[k][cor_l][nreal].plot_wiggle(ssta=nsta, sf=0.1, stride=stride,axis=ax1)
-                ax2 = self.hete_obj[k][cor_l][nreal].plot_Vs(vs_br=1000,cmap='jet',axis=ax2,clim=[90,390])
-                ax2.fill_between(x,np.ones(x.shape)*-34,y[nreal,:],facecolor='#b26400')
-                ax2.set_xlim(min(x),max(x))
-                ax1.set_ylim(10,0)
-                ax1.set_ylabel('Time [s]')
-                hete_fig.suptitle(fig_title[k], y=0.998)
-                ax1.set_title(axis_title[cor_l])
-
-                if save:
-                    relative_dir = self.save_dir + '/wiggles/' + k + '/'
-                    make_dir(relative_dir)
-                    savefile = relative_dir + k + '_' + cor_l + '_wiggle.png'
-                    hete_fig.savefig(savefile, bbox_inches='tight', pad_inches=0.02)
+            ax1 = self.hete_obj[key][cor_l][nreal].plot_wiggle(ssta=nsta, sf=sf, norm=norm, stride=stride,axis=ax1)
+            ax2 = self.hete_obj[key][cor_l][nreal].plot_Vs(vs_br=1000,cmap='jet',axis=ax2,clim=clim, size='3%')
+            if plot_func:
+                plot_func(ax2,option='BR')
             else:
-                self.hete_obj[k][cor_l][nreal].plot_wiggle(ssta=nsta,stride=stride)
+                ax2.fill_between(x,np.ones(x.shape)*-34,y[-1,:],facecolor='#b26400')
+                ax2.set_ylim([-34,39])
+                ax2.set_xlim(min(x),max(x))
+
+            if 'ylim' in kwargs.keys():
+                ax1.set_ylim(kwargs['ylim'][0],kwargs['ylim'][1])
+            else:
+                ax1.set_ylim(5,0)
+            ax1.set_ylabel('Time [s]',fontsize=15, labelpad=19)
+            ax1.tick_params(axis='both', which='major', labelsize=12, labelbottom=False)
+            ax1.set_title(axis_title[cor_l],fontsize=17)
+            #hete_fig.suptitle(fig_title[key],y=0.985, x=0.48, fontsize=18)
+            if save_dir:
+                save_file = save_dir + key + '_' + cor_l + '.png'
+                hete_fig.savefig(save_file, dpi=300, bbox_inches='tight', pad_inches=0.05)
+
+        else:
+            self.hete_obj[k][cor_l][nreal].plot_wiggle(ssta=nsta,stride=stride)
 
     plt.show(block=True)
+
 
   def em_pm(self, nsta, key=None, pickle_load=False):
     try:
@@ -331,13 +364,19 @@ class process_sim(object):
             key = self.hete_obj.keys()
 
     make_dir(self.pickle_dir + 'EP_misfit/')
-    pickle_name = self.pickle_dir + 'em_pm.pk'
+    pickle_name = self.pickle_dir + 'EP_misfit/em_pm.pk'
 
     dt = self.ref_obj[key[0]].dt
     Em = {}
     Pm = {}
 
     if not pickle_load:
+        
+        if hasattr(self,'hete_trace'): # Check if time_trace method has been called
+            pass
+        else: # call the method
+            self.time_traces(key=None,scale=False)
+
         for k in key:
             Em[k] = {}
             Pm[k] = {}
@@ -377,15 +416,18 @@ class process_sim(object):
     ref_tf  = {}
     hete_tf = {}
 
+    bedrock_dir = self.pickle_dir + 'BR_TF/'
+    make_dir(bedrock_dir)
+
     # Reference TF
     for k in key:
-      tf_param.update({'brockName':self.pickle_dir + k + '_br_ssr'})
+      tf_param.update({'brockName': bedrock_dir + k + '_br_ssr'})
       ref_tf[k]  = self.ref_obj[k].compute_tf(**tf_param,saveBr=True)
 
     # Heterogeneous TF
     for k in key:
       hete_tf[k] = {}
-      tf_param.update({'brockName':self.pickle_dir + k + '_br_ssr.npy'})
+      tf_param.update({'brockName': bedrock_dir + k + '_br_ssr.npy'})
       for cor_l in self.hete_obj[k].keys():
         hete_tf[k][cor_l] = [obj.compute_tf(**tf_param,useBr=True) for obj in self.hete_obj[k][cor_l]]
 
@@ -434,7 +476,7 @@ class process_sim(object):
 
 
 
-  def compare_peak_values(self, key=None, pv_type='pgv'):
+  def compare_peak_values(self, key=None, pv_type='pgv',n_surf=None):
     """
     Plot and compute the difference between peak ground motion indicators (PGV/PGA)
     of a Homogenoeus and Heterogeneous medium.
@@ -454,10 +496,10 @@ class process_sim(object):
     # 1) Reference peak values
     ref_pgv = {}
     for k in key:
-      ref_pgv[k] = self.ref_obj[k].compute_pv(op=pv_type,freqs=freqs,n_surf=421,component='x')
+      ref_pgv[k] = self.ref_obj[k].compute_pv(op=pv_type,freqs=freqs,n_surf=n_surf,component='x')
 
     data = self.select_key(self.hete_obj,key)
-    hete_pgv = self.apply_method(data,'compute_pv',params={'op':pv_type,'n_surf':421,'freqs':freqs,'component':'x'})
+    hete_pgv = self.apply_method(data,'compute_pv',params={'op':pv_type,'n_surf':n_surf,'freqs':freqs,'component':'x'})
 
     #---- Compute statistics on the heterogeneous simulations --
     hete_stats = self.compute_stats(hete_pgv)
@@ -465,7 +507,7 @@ class process_sim(object):
     return ref_pgv, hete_pgv, hete_stats
 
 
-  def compute_psa(self, key='elast_sh', T=[2, 6], save=None, plot_op = 'default', pickle_load=True):
+  def compute_psa(self, key='elast_sh', T=None, save=None, plot_op = 'default', pickle_load=True, n_surf=None):
     """
       Computes the pseudo-spectral acceleration (PSA) as a function of frequency.
 
@@ -473,19 +515,25 @@ class process_sim(object):
        -- key :: Simulation type
        -- T   :: Frequencies at which to compute the PSA
     """
-
+    
     make_dir(self.pickle_dir + 'PSA/')
     pickle_name = self.pickle_dir +  'PSA/peak_response.pk'
+    n_surf = n_surf or 421
 
+    if isinstance(T,(list,tuple)):
+      period_indice = [i-1 for i in T]
+    elif isinstance(T,int):
+      period_indice = T - 1
+      
     if not pickle_load:
       T  = [1,2,3,4,5,6,7,8]
 
       #-- ref psa
       ref_pr = {}
-      for key in ref_obj:
-        ref_pr[key] = self.ref_obj[key].psa_sac(T,n_surf=421)
+      for k in self.ref_obj:
+        ref_pr[k] = self.ref_obj[k].psa_sac(T,n_surf=n_surf)
 
-      hete_pr = self.apply_method(self.hete_obj,'psa_sac',params={'T':T,'n_surf':421})
+      hete_pr = self.apply_method(self.hete_obj,'psa_sac',params={'T':T,'n_surf':n_surf})
 
       pickle_pr = {'ref_pr':ref_pr, 'hete_pr':hete_pr}
 
@@ -499,13 +547,13 @@ class process_sim(object):
         pickle_pr = pickle.load(f)
 
       ref_pr  = pickle_pr['ref_pr']
-      hete_pr = pickle_pr['hete_pr'][key]
+      hete_pr = pickle_pr['hete_pr']
 
-    hete_pr = self.select_key(hete_pr,self.hete_obj[key].keys())
+    hete_pr = self.select_key(hete_pr[key],self.hete_obj[key].keys())
     
     # Select periods
-    ref_pr = { k : ref_pr[k][T,:] for k in ref_pr.keys()}
-    hete_pr = { cl : [hete_pr[cl][i][T,:] for i in range(len(hete_pr[cl]))] for cl in hete_pr.keys()}
+    ref_pr = { k : ref_pr[k][period_indice,:] for k in ref_pr.keys()}
+    hete_pr = { cl : [hete_pr[cl][i][period_indice,:] for i in range(len(hete_pr[cl]))] for cl in hete_pr.keys()}
 
     #---- Compute statistics on the heterogeneous simulations --
     hete_stats = self.compute_stats(hete_pr)
@@ -792,79 +840,53 @@ class process_sim(object):
       Compute the dynamic time warping (DTW) between different simulations
     """
 
-    ref_simul = self.load(case='HOMO')
-    hete_simul = self.load(case='HETE')
-
-    ref_obj  = ref_simul[key]
-    hete_obj = hete_simul[key]
-
     # Computing the DTW is time consuming, so compute once and pickle the objects
-    save_dir = pickle_dir + 'DTW/'
+    save_dir = self.pickle_dir + 'DTW/'
     filename_hete = save_dir + key + '_hete_dtw.pk'
 
     if save :
       make_dir(save_dir)
-      hete_obj = self.apply_method(hete_obj,'decimate_sig',params={'q':4,'filter_s':True},output=False)
-      ref_obj.decimate_sig(q=4,filter_s=True)
-      ref_hete_dtw = self.apply_dtw(ref_obj.decimated_veloc,hete_obj,nsurface=nsurface,filename=filename_hete,CL=CL)
+      hete_obj = self.apply_method(self.hete_obj[key],'decimate_sig',params={'q':4,'filter_s':True},output=False)
+      self.ref_obj[key].decimate_sig(q=4,filter_s=True)
+      #ref_hete_dtw = self.apply_dtw(self.ref_obj[key].decimated_veloc,hete_obj,nsurface=nsurface,filename=filename_hete)
+      ref_hete_dtw = self.apply_dtw(self.ref_obj[key].velocity,hete_obj,nsurface=nsurface,filename=filename_hete)
+
+    return ref_hete_dtw
 
 
-  def plot_dtw(self,key='visla_sh'):
+  def plot_dtw(self,nsta=421,key='visla_sh',load=True):
 
     save_dir = self.pickle_dir + 'DTW/'
-    filename_hete = save_dir + key + '_hete_dtw.pk'
+    if load:
+      filename_hete = save_dir + key + '_hete_dtw.pk'
 
-    with open(filename_hete,'rb') as f:
-      ref_hete_dtw = pickle.load(f)
+      with open(filename_hete,'rb') as f:
+        dtw_distances = pickle.load(f)
+    else:
+      dtw_distances = self.compute_dtw(nsurface=nsta,key=key)
 
-    # Get dtw distances
-    ref_hete_path = self.get_dtw_dim(ref_hete_dtw,'path')
-    dtw_distances = self.get_dtw_dim(ref_hete_dtw,'dist')
+    db.set_trace()
 
     dtw_distances = self.compute_stats(dtw_distances,'mean')
 
     #self.make_dtw_figures(dtw_distances,xcoord, key=key, fig_num=3, colors=colors, save=True, save_dir=savefile)
     return dtw_distances
 
-  def plot_velocity_maps(self,key='visla_sh',brock_Vs=1000,clim=None,key_title=None,save=True):
+  def plot_velocity_maps(self,key='visla_sh',brock_Vs=1000,clim=None,key_title=None,nreal=7,save=True):
     set_rcParams()
+
     x,y = read_profile()
     for cor_l in self.hete_obj[key].keys():
-        fig, ax = plt.subplots(figsize=(12,3))
-        ax = self.hete_obj[key][cor_l][7].plot_Vs(vs_br=1000,cmap='jet',axis=ax,clim=clim)
+        fig, ax = plt.subplots(figsize=(12,3.5))
+        ax = self.hete_obj[key][cor_l][nreal].plot_Vs(vs_br=1000,cmap='jet',axis=ax,clim=clim, size='3%')
         ax.fill_between(x,np.ones(x.shape)*-34,y[7,:],facecolor='#b26400')
         ax.set_xlim(min(x),max(x))
         ax.set_ylim(-34,max(y[0]+1))
-        ax.set_title(key_title[cor_l])
+        ax.set_title(key_title[cor_l],fontsize=17)
         if save:
-          fig.savefig(self.save_dir + cor_l + '.png', bbox_inches='tight', pad_inches=0.02)
+          fig.savefig(self.save_dir + cor_l + '.png', dpi=150, bbox_inches='tight', pad_inches=0.02)
         plt.show(block=True)
-    
 
-
-  def plot_dtw_pair_dist(self,key='visla_psv',save=True):
-    ref_obj = self.load(case='HOMO')[key]
-
-    save_file = pickle_dir + 'DTW/' + key + '_ref_pair_wise_dtw.pk'
-
-    if save :
-      dist_path = ref_obj.pairwise_dtw()
-
-      with open(save_file,'wb') as f:
-        pickle.dump(dist_path,f,protocol=pickle.HIGHEST_PROTOCOL)
-    else :
-
-      with open(save_file, 'rb') as f:
-                  dist_path = pickle.load(f)
-
-    xcoord = ref_obj.rcoord[:,0]
-    set_rcParams()
-    fig , ax = plt.subplots()
-    ax.imshow(dist_path['dist'],aspect='auto',extent=[xcoord[115],xcoord[315],dist_path['dist'].shape[0]*5,5])
-    plt.show(block=True)
-    db.set_trace()
-
-    return
 
   ###################################################################################################################
   #           STATIC METHODS
@@ -918,19 +940,14 @@ class process_sim(object):
     return output
 
   @staticmethod
-  def apply_dtw(ref,obj,nsurface,filename=None,parallel=False,**kwargs):
+  def apply_dtw(ref,obj,nsurface,filename=None):
     output = {}
 
-    if ('CL' in kwargs.keys()) and (bool(kwargs['CL'])):
-      for cor_l in kwargs['CL']:
-        print(cor_l)
-        output[cor_l] = [ [ dtw(ref[:,i], op.decimated_veloc[:,i], dist=euclidean) for i in range(nsurface)] for
+    for cor_l in obj.keys():
+      print(cor_l)
+      output[cor_l] = [ [ dtw.distance(ref[:,i], op.velocity[:,i]) for i in range(nsurface)] for
                          op in obj[cor_l] ]
-    else:
-      for cor_l in obj:
-        print(cor_l)
-        output[cor_l] = [ [ dtw(ref[:,i], op.decimated_veloc[:,i], dist=euclidean) for i in range(nsurface)] for
-                           op in obj[cor_l] ]
+      db.set_trace()
 
     # pickle output
     if filename :
@@ -1023,7 +1040,7 @@ class process_sim(object):
       select = True
     else :
       select = False
-
+    
     if isinstance(obj_dict[dict_keys[0]],dict):
       result = {}
       for key in obj_dict:
@@ -1598,7 +1615,8 @@ class process_sim(object):
 
     obj_keys = list(data.keys())
 
-    params = {'mean':'mean','median':'median','min':'minimum','max':'maiximum','perc':'perc'}
+    params = {'mean':'mean', 'median':'median', 'min':'minimum', 'max':'maximum',
+              'perc':'perc', 'std':'std', 'gmean':'gmean', 'gmean_cov':'gmean_cov'}
 
     if option:
 
@@ -1648,13 +1666,19 @@ class process_sim(object):
             array = np.array(data[key][cor_l])
             for para,value  in params.items():
               if para == 'perc':
-                perc10 = np.percentile(array,16,axis=0)
-                perc80 = np.percentile(array,84,axis=0)
+                perc16 = np.percentile(array,16,axis=0)
+                perc84 = np.percentile(array,84,axis=0)
                 median = np.median(array,axis=0)
-                stats[key][cor_l][value] = (perc80 - perc10) / ( 2 * median)
-                stats[key][cor_l]['84perc'] = perc80
+                stats[key][cor_l][value] = (perc84 - perc16) / ( 2 * median)
+                stats[key][cor_l]['84perc'] = perc84
+                stats[key][cor_l]['16perc'] = perc16
               elif para == 'median':
                 stats[key][cor_l][value] = np.median(array,axis=0)
+              elif para == 'gmean':
+                stats[key][cor_l][value] = gmean(array,axis=0)
+              elif para == 'gmean_cov':
+                std = np.std( np.log(array), axis=0)
+                stats[key][cor_l][value] = np.sqrt( np.exp(std**2) - 1 ) * 1e2
               else:
                 stats[key][cor_l][value] = getattr(array,para)(axis=0)
 
@@ -1666,13 +1690,19 @@ class process_sim(object):
 
           for para,value  in params.items():
             if para == 'perc':
-              perc10 = np.percentile(array,16,axis=0)
-              perc80 = np.percentile(array,84,axis=0)
+              perc16 = np.percentile(array,16,axis=0)
+              perc84 = np.percentile(array,84,axis=0)
               median = np.median(array,axis=0)
-              stats[cor_l][value] = (perc80 - perc10) / ( 2 * median)
-              stats[cor_l]['84perc'] = perc80
+              stats[cor_l][value] = (perc84 - perc16) / ( 2 * median)
+              stats[cor_l]['84perc'] = perc84
+              stats[cor_l]['16perc'] = perc16
             elif para == 'median':
               stats[cor_l][value] = np.median(array,axis=0)
+            elif para == 'gmean':
+              stats[cor_l][value] = gmean(array,axis=0)
+            elif para == 'gmean_cov':
+              std = np.std( np.log(array), axis=0)
+              stats[cor_l][value] = np.sqrt( np.exp(std**2) - 1 )
             else:
               stats[cor_l][value] = getattr(array,para)(axis=0)
 
@@ -1946,10 +1976,10 @@ class process_sim(object):
     return ax
 
   @staticmethod
-  def subplot_2ax(figsize=(9,7)):
+  def subplot_2ax(figsize=(8,6)):
     fig = plt.figure(figsize=figsize)
-    ax1 = fig.add_axes([0.2,0.28,0.6,0.65])
-    ax2 = fig.add_axes([0.2,0.075,0.6,0.2])
+    ax1 = fig.add_axes([0.2,0.24,0.6,0.66])
+    ax2 = fig.add_axes([0.2,0.075,0.6,0.15])
     return fig, ax1, ax2
 
 
