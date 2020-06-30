@@ -290,12 +290,16 @@ class process_sim(object):
         if plot_func:
           plot_func(axis=ax2)
         else:
-          if key[6:8] == 'ho':
-              plot_nice(op='homo',axis=ax2, init=True)
-          elif key[6:8] == 'ta':
-              plot_nice(op='tabular',axis=ax2, init=True)
+          if 'init' in kwargs.keys():
+            init = kwargs['init']
           else:
-              plot_nice(op='default',axis=ax2, init=True)
+            init = True
+          if key[6:8] == 'ho':
+              plot_nice(op='homo',axis=ax2, init=init)
+          elif key[6:8] == 'ta':
+              plot_nice(op='tabular',axis=ax2, init=init)
+          else:
+              plot_nice(op='default',axis=ax2, init=init)
           ax2.set_ylim([-34,39])
         if 'ylim' in kwargs.keys():
             ax1.set_ylim(kwargs['ylim'][0],kwargs['ylim'][1])
@@ -318,7 +322,11 @@ class process_sim(object):
                       save_dir=None, plot_func=None,fig_title='', 
                       axis_title='', nreal=7,clim=None,**kwargs):
     set_rcParams()
-    x,y = read_profile()
+    if 'init' in kwargs.keys():
+      init = kwargs['init']
+    else:
+      init = True
+    x,y = read_profile(init=init)
 
     for cor_l in self.hete_obj[key].keys():
         if naxis:

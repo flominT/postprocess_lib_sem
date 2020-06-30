@@ -200,7 +200,7 @@ class sem2dpack(object):
       field = np.fromfile(f,np.float32)
     return field
 
-  def read_seismo(self,filter_s=False,freqs=None,verbose=False):
+  def read_seismo(self,filter_s=False,freqs=None,scale=False,verbose=False):
     """
        Reads the seismograms or traces the simulations
 
@@ -271,6 +271,8 @@ class sem2dpack(object):
         self.velocity = self.filter_seismo(self.velocity,freqs=freqs,ftype='bandpass',dt=self.dt)
         return self.velocity
 
+    if scale:
+      self.velocity /= scale
     return self.velocity
 
   def read_stress_strain(self):
@@ -806,7 +808,7 @@ class sem2dpack(object):
 
     return filtered_s
 
-  def plot_Vs(self,vs_br=1000,cmap='jet',axis=None,clim=None):
+  def plot_Vs(self,vs_br=1000,cmap='jet',axis=None,clim=None, size='2%'):
     """
        Makes a scatter plot of the velocities
 
@@ -823,10 +825,10 @@ class sem2dpack(object):
     vs_int = tmp.drop(tmp[tmp['vs']==vs_br].index)
     self.gll_vs = vs_int
     min_vs , max_vs = np.min(vs_int['vs']), np.max(vs_int['vs'])
-    db.set_trace()
+
     if axis :
       divider = make_axes_locatable(axis)
-      cax     = divider.append_axes('right', size='2%', pad=0.2)
+      cax     = divider.append_axes('right', size=size, pad=0.2)
       x = self.rcoord[:,0]
       #axis.fill_between(x,np.ones(x.shape)*-34,y[7,:],facecolor='#b26400')
       im = axis.scatter(vs_int['x'], vs_int['z'], c=vs_int['vs'], s=20, cmap='jet')

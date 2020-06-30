@@ -1015,13 +1015,14 @@ def plot_tf_misfits(st1, st2, dt=0.01, t0=0., fmin=1., fmax=10., nf=100, w0=6,
         fig = plt.figure(figsize=(12,8))
 
         # plot signals
-        ax_sig = fig.add_axes([left + w_1, bottom + h_2 + h_3, w_2, h_1])
+        ax_sig = fig.add_axes([left + w_1, bottom + h_2 + h_3 + 0.005, w_2, h_1 + 0.005])
+        ax_sig.tick_params(axis='y',which='minor',left=False)
         ax_sig.plot(t, st1[itr], plot_args[0], label=label[0])
         ax_sig.plot(t, st2[itr], plot_args[1], label=label[1])
         ax_sig.legend(loc=1)
 
         # plot TEM
-        ax_tem = fig.add_axes([left + w_1, bottom + h_1 + h_2 + h_3, w_2, h_2])
+        ax_tem = fig.add_axes([left + w_1, bottom + h_1 + h_2 + h_3 + 0.015, w_2, h_2])
         ax_tem.plot(t, _tem[itr], plot_args[2])
 
         # plot TFEM
