@@ -255,7 +255,7 @@ class process_sim(object):
     self.pickle_dir = pickle_dir
     self.save_dir   = save_dir
 
-  def time_traces(self,key=None,scale=False,freqs=None):
+  def time_traces(self,key=None,scale=None,freqs=None):
     try :
         assert isinstance(key,(list,tuple))
     except:
@@ -274,8 +274,8 @@ class process_sim(object):
     self.ref_trace  = ref_trace
     return ref_trace, hete_trace
 
-  def plot_ref_wiggle(self,nsta,stride,sf=0.15,key=None, norm=None, naxis=False,
-                      save_dir=None,plot_func=None,axis_title='',fig_title='',**kwargs):
+  def plot_ref_wiggle(self, nsta, ftype='ximage', stride=3, sf=0.15,key=None, norm=None, naxis=False,
+                      save_dir=None,plot_func=None,axis_title='',**kwargs):
     set_rcParams()
 
     if naxis:
@@ -285,8 +285,24 @@ class process_sim(object):
         divider = make_axes_locatable(ax1)
         cax     = divider.append_axes('right',size='3%',pad=0.2)
         cax.remove()
+        if ftype == 'wig':
+          ax1 = self.ref_obj[key].plot_wiggle(ssta=nsta,stride=stride,sf=sf, norm=norm, axis=ax1)
+        elif ftype == 'ximage':
+          xcoord  = self.ref_obj[key].rcoord[:,0]
+          tvec    = self.ref_obj[key].tvec
+          ext     = [min(xcoord),max(xcoord),max(tvec),min(tvec)]
+          if 'vrange' in kwargs.keys():
+              vmin, vmax = kwargs['vrange'][0], kwargs['vrange'][1]
+          else:
+              vmin, vmax = None, None
+          if ('compo' in kwargs.keys()) and (kwargs['compo']==True):
+              ax1.imshow(self.ref_obj[key].velocity_z[:,:nsta],aspect='auto',cmap='gray',
+                    extent=ext, vmin=vmin, vmax=vmax)
+              axis_title = axis_title + '- z component'
+          else:
+              ax1.imshow(self.ref_obj[key].velocity[:,:nsta],aspect='auto',cmap='gray',
+                    extent=ext, vmin=vmin, vmax=vmax)
 
-        ax1 = self.ref_obj[key].plot_wiggle(ssta=nsta,stride=stride,sf=sf, norm=norm, axis=ax1)
         if plot_func:
           plot_func(axis=ax2)
         else:
@@ -301,25 +317,33 @@ class process_sim(object):
           else:
               plot_nice(op='default',axis=ax2, init=init)
           ax2.set_ylim([-34,39])
+
         if 'ylim' in kwargs.keys():
             ax1.set_ylim(kwargs['ylim'][0],kwargs['ylim'][1])
         else:
             ax1.set_ylim(5,0)
-        ax1.set_ylabel('Time [s]',fontsize=14, labelpad=19)
+            
+        ax1.set_ylabel('Time [s]',fontsize=14)
+        ax2.set_xlabel('Distance along the profile [m]',fontsize=14)
+        ax2.set_ylabel('Depth [m]', fontsize=14)
         ax1.tick_params(axis='both', which='major', labelsize=12, labelbottom=False)
-        #ref_fig.suptitle(fig_title[key],y=0.985, x=0.48, fontsize=18)
-        ax1.set_title(axis_title, fontsize=17)
+        ax1.yaxis.set_label_coords(-0.1,0.5)
+        ax2.yaxis.set_label_coords(-0.1,0.5)
+        ax1.set_title(axis_title, fontsize=17, pad=10)
         if save_dir :
-            save_file  = save_dir + 'ref_' + key + '_wiggle.png'
-            ref_fig.savefig(save_file, dpi=300, bbox_inches='tight', pad_inches=0.05)
+            if ('compo' in kwargs.keys()) and (kwargs['compo']==True):
+              save_file  = save_dir + 'ref_' + key + '_wiggle_z.png'
+            else:
+              save_file  = save_dir + 'ref_' + key + '_wiggle.png'
+            ref_fig.savefig(save_file, dpi=150, bbox_inches='tight', pad_inches=0.05)
       
     else:
         self.ref_obj[key].plot_wiggle(ssta=nsta,stride=stride)
 
         return
 
-  def plot_hete_wiggle(self,nsta,stride,sf=0.15, key=None, norm=None, naxis=False,
-                      save_dir=None, plot_func=None,fig_title='', 
+  def plot_hete_wiggle(self, nsta, ftype='ximage', stride=3, sf=0.15, key=None, norm=None, naxis=False,
+                      save_dir=None, plot_func=None, s=2,
                       axis_title='', nreal=7,clim=None,**kwargs):
     set_rcParams()
     if 'init' in kwargs.keys():
@@ -335,8 +359,28 @@ class process_sim(object):
             cax     = divider.append_axes('right',size='3%',pad=0.2)
             cax.remove()
 
-            ax1 = self.hete_obj[key][cor_l][nreal].plot_wiggle(ssta=nsta, sf=sf, norm=norm, stride=stride,axis=ax1)
-            ax2 = self.hete_obj[key][cor_l][nreal].plot_Vs(vs_br=1000,cmap='jet',axis=ax2,clim=clim, size='3%')
+            if ftype == 'wig':
+              ax1 = self.hete_obj[key][cor_l][nreal].plot_wiggle(ssta=nsta, sf=sf, norm=norm, stride=stride,axis=ax1)
+            elif ftype == 'ximage':
+              xcoord  = self.ref_obj[key].rcoord[:,0]
+              tvec    = self.ref_obj[key].tvec
+              ext     = [min(xcoord),max(xcoord),max(tvec),min(tvec)]
+              if 'vrange' in kwargs.keys():
+                  vmin, vmax = kwargs['vrange'][0], kwargs['vrange'][1]
+              else:
+                  vmin, vmax = None, None
+
+              if ('compo' in kwargs.keys()) and (kwargs['compo']==True):
+                  ax1.imshow(self.hete_obj[key][cor_l][nreal].velocity_z[:,:nsta],aspect='auto',cmap='gray',
+                        extent=ext, vmin=vmin, vmax=vmax)
+                  title = axis_title[cor_l] + ' - z component'
+              else:
+                  ax1.imshow(self.hete_obj[key][cor_l][nreal].velocity[:,:nsta],aspect='auto',cmap='gray',
+                        extent=ext, vmin=vmin, vmax=vmax)
+                  title = axis_title[cor_l]
+
+            ax2 = self.hete_obj[key][cor_l][nreal].plot_Vs(vs_br=1000,cmap='jet',axis=ax2,clim=clim, size='3%',s=s)
+
             if plot_func:
                 plot_func(ax2,option='BR')
             else:
@@ -348,13 +392,19 @@ class process_sim(object):
                 ax1.set_ylim(kwargs['ylim'][0],kwargs['ylim'][1])
             else:
                 ax1.set_ylim(5,0)
-            ax1.set_ylabel('Time [s]',fontsize=15, labelpad=19)
+            ax1.set_ylabel('Time [s]',fontsize=14)
             ax1.tick_params(axis='both', which='major', labelsize=12, labelbottom=False)
-            ax1.set_title(axis_title[cor_l],fontsize=17)
-            #hete_fig.suptitle(fig_title[key],y=0.985, x=0.48, fontsize=18)
+            ax1.set_title(title,fontsize=17,pad=10)
+            ax2.spines['right'].set_visible(False)
+            ax2.spines['top'].set_visible(False)
+            ax1.yaxis.set_label_coords(-0.1,0.5)
+            ax2.yaxis.set_label_coords(-0.1,0.5)
             if save_dir:
-                save_file = save_dir + key + '_' + cor_l + '.png'
-                hete_fig.savefig(save_file, dpi=300, bbox_inches='tight', pad_inches=0.05)
+                if ('compo' in kwargs.keys()) and (kwargs['compo']==True):
+                    save_file = save_dir + key + '_' + cor_l + '_z.png'
+                else:
+                    save_file = save_dir + key + '_' + cor_l + '.png'
+                hete_fig.savefig(save_file, dpi=150, bbox_inches='tight', pad_inches=0.05)
 
         else:
             self.hete_obj[k][cor_l][nreal].plot_wiggle(ssta=nsta,stride=stride)
@@ -482,7 +532,24 @@ class process_sim(object):
                        colors='rbgc', key=key, save_dir = save_dir  )
 
 
+  def duration(self, key=None, atype='ABI', freqs=None, n_surf=None):
 
+    try:
+        assert isinstance(key,(list,tuple))
+    except:
+        if key:
+            key = [key,]
+        else:
+            key = self.hete_obj.keys()
+
+    ref_duration = {}
+    for k in key:
+      ref_duration[k] = self.ref_obj[k].compute_ai(freqs=freqs,n_surf=n_surf)
+
+    hete_duration = self.apply_method(self.hete_obj,'compute_ai',params={'freqs':freqs, 'n_surf':n_surf,'atype':atype})
+    duration_stats = self.compute_stats(hete_duration)
+
+    return ref_duration, hete_duration, duration_stats
 
   def compare_peak_values(self, key=None, pv_type='pgv',n_surf=None):
     """
@@ -515,7 +582,7 @@ class process_sim(object):
     return ref_pgv, hete_pgv, hete_stats
 
 
-  def compute_psa(self, key='elast_sh', T=None, save=None, plot_op = 'default', pickle_load=True, n_surf=None):
+  def compute_psa(self, key='elast_sh', T=None, save=None, plot_op = 'default', pickle_load=True, n_surf=None, corl=None):
     """
       Computes the pseudo-spectral acceleration (PSA) as a function of frequency.
 
@@ -557,7 +624,10 @@ class process_sim(object):
       ref_pr  = pickle_pr['ref_pr']
       hete_pr = pickle_pr['hete_pr']
 
-    hete_pr = self.select_key(hete_pr[key],self.hete_obj[key].keys())
+    if corl:
+      hete_pr = self.select_key(hete_pr[key],corl)
+    else:
+      hete_pr = self.select_key(hete_pr[key],self.hete_obj[key].keys())
     
     # Select periods
     ref_pr = { k : ref_pr[k][period_indice,:] for k in ref_pr.keys()}
@@ -880,20 +950,24 @@ class process_sim(object):
     #self.make_dtw_figures(dtw_distances,xcoord, key=key, fig_num=3, colors=colors, save=True, save_dir=savefile)
     return dtw_distances
 
-  def plot_velocity_maps(self,key='visla_sh',brock_Vs=1000,clim=None,key_title=None,nreal=7,save=True):
+  def plot_velocity_maps(self,s=3,key='visla_sh',brock_Vs=1000,clim=None,key_title=None,nreal=7,save=True,init=True):
     set_rcParams()
 
-    x,y = read_profile()
+    x,y = read_profile(init=init)
     for cor_l in self.hete_obj[key].keys():
+        print(cor_l)
         fig, ax = plt.subplots(figsize=(12,3.5))
-        ax = self.hete_obj[key][cor_l][nreal].plot_Vs(vs_br=1000,cmap='jet',axis=ax,clim=clim, size='3%')
-        ax.fill_between(x,np.ones(x.shape)*-34,y[7,:],facecolor='#b26400')
-        ax.set_xlim(min(x),max(x))
-        ax.set_ylim(-34,max(y[0]+1))
+        ax = self.hete_obj[key][cor_l][nreal].plot_Vs(vs_br=1000,s=s,cmap='jet',axis=ax,clim=clim, size='3%')
+        #ax.fill_between(x,np.ones(x.shape)*-34,y[7,:],facecolor='#b26400')
+        #ax.set_xlim(min(x),max(x))
+        #ax.set_ylim(-34,max(y[0]+1))
+        ax.set_xlim(490,1590)
         ax.set_title(key_title[cor_l],fontsize=17)
+        ax.spines['right'].set_visible(False)
+        ax.spines['top'].set_visible(False)
         if save:
-          fig.savefig(self.save_dir + cor_l + '.png', dpi=150, bbox_inches='tight', pad_inches=0.02)
-        plt.show(block=True)
+          fig.savefig(self.save_dir + cor_l + '_bis.png', dpi=300, bbox_inches='tight', pad_inches=0.02)
+    plt.show()
 
 
   ###################################################################################################################
@@ -1101,504 +1175,6 @@ class process_sim(object):
 
 
   @staticmethod
-  def make_psa_figures(ref_data, hete_data, xcoord, T, save_dir=None, colors='rbgc',
-                        plot_op='stats', key='elast_sh',**kwargs):
-    '''
-      Make pseudo-spectral acceleration figures.
-    '''
-
-    set_rcParams()
-    plt.rcParams['axes.linewidth'] = 0.8
-
-    if plot_op == 'stats':
-      fig = plt.figure(figsize=(14,6))
-      grid = fig.add_gridspec(2,2)
-
-      i = 0
-      for stat in hete_data.keys():
-        gax = grid[i].subgridspec(1,2)
-        for j in range(2):
-          ax = fig.add_subplot(gax[j])
-
-          ax.plot(xcoord,ref_data[j,:],'k',label='reference medium')
-          cc = 0
-          for cor_l in hete_data[stat].keys():
-            ax.plot(xcoord,hete_data[stat][cor_l][j,:],c=colors[cor_l],label=LABEL[cor_l])
-            cc += 1
-
-          ax.set_title('Central frequency : {} Hz'.format(T[j]))
-
-        i += 1
-
-    elif plot_op == 'maps' :
-
-      for cor_l in hete_data:
-
-        plt.rcParams['axes.labelsize'] = 10
-        plt.rcParams['ytick.major.size'] = 2
-
-        fig = plt.figure(figsize = (8,12))
-        gs = mpl.gridspec.GridSpec(15 , 2 , wspace=0.4 , hspace=0.4, figure=fig, left=0.08, right=0.92,
-                                bottom=0.05, top=0.95)
-        sim = 0
-        n = 0
-        for it in range(5):
-          i = n
-          j = n+2
-          for k in range(2):
-            simu = hete_data[cor_l][sim]
-            ax1 = fig.add_subplot(gs[i:j,k], xticklabels=[])
-            ax2 = fig.add_subplot(gs[j,k], sharex=ax1)
-            ax1.set_title('simulation {}'.format(sim+1),fontsize=12)
-
-            im = ax1.imshow(simu, cmap='jet', aspect='auto', vmin=0, vmax=15, \
-                      origin='lower', extent=[min(xcoord),max(xcoord),0,8])
-            divider = make_axes_locatable(ax1)
-            cax     = divider.append_axes('right', size='3%', pad=0.1)
-            c  = fig.colorbar(im, cax=cax, fraction=0.046, shrink=0.6)
-            im.set_clim(0,15)
-            c.set_label('PSA [m$s^{-2}$]',fontsize=8)
-            c.ax.minorticks_off()
-            ax1.xaxis.set_visible(False)
-            ax2 = getattr(kwargs['hete_obj'][cor_l][sim],'plot_Vs')(axis=ax2,clim=[90,390])
-
-
-            if it == 4 :
-              ax2.xaxis.set_visible(True)
-            else:
-              ax2.xaxis.set_visible(False)
-
-            ax1.minorticks_off()
-            ax1.set_yticks(np.arange(.5,8,1))
-            ax1.set_yticklabels(np.arange(1,9,1))
-            ax2.set_xlim([495,1575])
-            ax1.set_ylabel('Frequency [Hz]')
-
-            sim += 1
-
-          n += 3
-        fig.suptitle(key_title[key] + ', ' + LABEL[cor_l])
-
-        if save_dir:
-          savefile = save_dir + key + '_' + cor_l + '_psa_maps.png'
-          fig.savefig(savefile)
-
-    elif plot_op == 'ref':
-
-      fig = plt.figure(figsize=(10,8))
-      ax1 = fig.add_axes([0.2,0.28,0.6,0.65])
-      ax2 = fig.add_axes([0.2,0.075,0.6,0.2])
-
-      for sim in ref_data:
-        im = ax1.imshow(ref_data[sim], cmap='jet', aspect='auto', vmin=0, vmax=15, \
-                      origin='lower', extent=[min(xcoord),max(xcoord),0,8])
-        divider = make_axes_locatable(ax1)
-        cax     = divider.append_axes('right', size='3%', pad=0.2)
-        c  = fig.colorbar(im, cax=cax, fraction=0.046, shrink=0.6)
-        im.set_clim(0,15)
-        c.set_label('PSA [m$s^{-2}$]',fontsize=12)
-        c.ax.minorticks_off()
-
-        ax1.xaxis.set_visible(False)
-
-        ax1.minorticks_off()
-        ax1.set_yticks(np.arange(.5,8,1))
-        ax1.set_yticklabels(np.arange(1,9,1))
-        ax2.set_xlim([495,1575])
-        ax1.set_ylabel('Frequency [Hz]')
-        ax1.set_title('Pseudo-spectral acceleration ')
-
-        split = key.split('_')
-
-        if split[1] == 'tab':
-          plot_nice(op='tabular',axis=ax2)
-        elif split[1] == 'homo':
-          plot_nice(op='homo',axis=ax2)
-        else:
-          plot_nice(op='norm',axis=ax2)
-
-        fig.suptitle(key_title[key], y=0.99)
-        if save_dir:
-          savefile = save_dir + sim + '_ref_psa.png'
-          fig.savefig(savefile)
-
-    elif plot_op == 'freq':
-      stats_param = ['mean','min','max','median']
-      cl  = ['a10_s5','a10_s30','a50_s5','a50_s30']
-      fig, ax = plt.subplots(2,4,figsize=(12,6), sharex = 'col')
-      fig.subplots_adjust(bottom = 0.15,left=0.06,right=0.99,hspace=0.2,top=0.9)
-
-      axis = ax.flatten()
-      j = 0
-      for stat in stats_param:
-        for i in range(2):
-          if i == 0:
-            for cor_l in cl :
-              axis[j].plot(xcoord,hete_data[cor_l][stat][1,:],c=colors[cor_l])
-            axis[j].plot(xcoord,ref_data[key][1,:],'k')
-            axis[j].set_title(stat.capitalize() + ' at 2 Hz',fontsize=14)
-          else :
-            for cor_l in cl :
-              axis[j+1].plot(xcoord,hete_data[cor_l][stat][5,:],c=colors[cor_l])
-            axis[j+1].plot(xcoord,ref_data[key][5,:],'k')
-            axis[j+1].set_title(stat.capitalize() + ' at 6 Hz',fontsize=14)
-        j += 2
-
-      fig.text(0.02,0.5, 'PSA',
-                va='center',rotation='vertical', fontsize=14)
-      fig.text(0.5,0.08, 'Horizontal profile [m]', ha='center', fontsize=14)
-
-
-      fig.suptitle(key_title[key], y=0.99)
-      #plt.tight_layout(pad=2.8,h_pad=0,w_pad=0.5)
-
-      lines = [Line2D([0],[0], color=i) for i in colors ]
-      lines.insert(0,Line2D([0],[0], color='k'))
-      labels = [LABEL[cor_l] for cor_l in cl] ; labels.insert(0,'Reference medium')
-      fig.legend(lines, labels, loc= (0.02,0.01), ncol=5)
-
-      if save_dir:
-        savefile = save_dir + key  + '_psa_stats.png'
-        fig.savefig(savefile)
-
-    else :
-      stats_param = ['mean','min','max','median','perc']
-      cl  = ['a10_s5','a10_s30','a50_s5','a50_s30']
-
-      for t in T:
-        fig, ax = plt.subplots(3, 2, figsize=(12,7), sharex='col')
-        fig.subplots_adjust(wspace=0.1,top=0.87)
-        axis = ax.flatten()
-
-        i = 0
-        for param in stats_param:
-          for cor_l in cl:
-            axis[i].plot(xcoord,hete_data[cor_l][param][t-1,:],c=colors[cor_l])
-
-          if param != 'perc':
-            axis[i].plot(xcoord,ref_data[key][t-1,:],'k')
-
-          if i == 3:
-            axis[i].xaxis.set_tick_params(labelbottom=True)
-          if param == 'perc':
-            axis[i].set_title('Normalized percentile range',fontsize=18)
-          else:
-            axis[i].set_title(param.capitalize(),fontsize=18)
-          axis[i].set_xlim(500,1570)
-
-          i += 1
-
-
-        fig.text(0.06,0.5, 'PSA [m$s^{-2}$]',
-                  va='center',rotation='vertical', fontsize=16)
-        fig.text(0.5,0.025, 'Horizontal profile [m]', ha='center', fontsize=16)
-
-
-        fig.suptitle(key_title[key] + '\n' + 'Pseudo-spectral response statistics at ' + str(t) + ' Hz', y=0.99)
-
-        axis[-1].remove()
-        lines  = []
-        labels = []
-
-        for cor_l in colors:
-          lines.append(Line2D([0],[0], color=colors[cor_l]))
-          labels.append(LABEL[cor_l])
-        lines.insert(0,Line2D([0],[0], color='k'))
-        labels.insert(0,'Reference medium')
-        fig.legend(lines, labels, loc= (0.6,0.13))
-
-
-        if save_dir:
-          print('Saving .... ')
-          savefile = save_dir + key  + '_psa_default_' + str(t) +'Hz.png'
-          fig.savefig(savefile, bbox_inches='tight', pad_inches=0.01)
-
-      db.set_trace()
-
-
-  @staticmethod
-  def plot_config_1dtf(n_sta, ref, h_obj,
-                        h_max, h_min, h_mean,
-                        max_ratio, min_ratio, mean_ratio,
-                        lab, colors, CL, **kwargs ):
-
-    # Time and frequency vectors
-    tvec = ref.tvec
-    freq = ref.fft_freq
-
-    #-- Initialize plot parameters --
-    tick_param  = set_plot_param(option='tick',fontsize=10)
-    label_param = set_plot_param(option='label')
-
-    fig , ax = plt.subplots(3,1,figsize=(9,7))
-
-    #-- Plot reference ---
-    ax[0].plot(tvec, ref.velocity[:,n_sta], c='k',label='Homogeneous medium',linewidth=1)
-    ax[1].plot(freq, ref.raw_ssr[n_sta,:], c='k',linewidth=1.5)
-
-    #-- Plot heterogeneous
-    cycol = cycle(colors)
-    i = 0
-
-    for cor_l in CL :
-      color = next(cycol)
-      ax[0].plot(tvec,h_obj[cor_l][4].velocity[:,n_sta],c=color,label=lab[i], linewidth=1)
-
-      ax[1].plot(freq,h_max[cor_l][n_sta,:],c=color,linestyle='-.',linewidth=1, \
-                 label='max TF')
-      ax[1].plot(freq,h_min[cor_l][n_sta,:],c=color,linestyle='--',linewidth=1, \
-                 label='min TF')
-      ax[1].plot(freq,h_mean[cor_l][n_sta,:],c=color,linestyle='-',linewidth=1, \
-                 label='mean TF')
-
-      ax[2].plot(freq,max_ratio[cor_l][n_sta,:],c=color,linestyle='-.',linewidth=1)
-      ax[2].plot(freq,min_ratio[cor_l][n_sta,:],c=color,linestyle='--',linewidth=1)
-      ax[2].plot(freq,mean_ratio[cor_l][n_sta,:],c=color,linestyle='-',linewidth=1)
-      i += 1
-
-    ax[0].set_ylabel('Velocity [ms$^{-1}$]',**label_param)
-    ax[1].set_ylabel('Amplification',**label_param)
-    ax[2].set_ylabel('Ampl. ratio (Ht/Hm)',**label_param)
-
-    ax[0].set_xlabel('Time [s]',**label_param)
-    ax[1].set_xlabel('Frequency [Hz]',**label_param)
-    ax[2].set_xlabel('Frequency [Hz]',**label_param)
-    ax[2].set_ylim(0.2,2)
-
-    ax[0].set_title('Receiver at $x$ = {:.1f} m '.format(int(ref.rcoord[n_sta,0])),**label_param)
-
-    if 'key' in kwargs:
-      tit = kwargs['key'].split('_')
-      if tit[0] == 'elast':
-        tit[0] = 'Elastic'
-      elif tit[0] == 'visla':
-        tit[0] =  'Viscoelastic'
-
-    #-- Legend --
-    from matplotlib.lines import Line2D
-    custom_lines = [Line2D([0], [0], color=colors[0], lw=1),
-                Line2D([0], [0], color=colors[0], linestyle='-.', lw=1),
-                Line2D([0], [0], color=colors[0], linestyle='--', lw=1)]
-
-    L = ax[0].legend(loc=1)
-    L2 = ax[1].legend(custom_lines, ['mean', 'max', 'min'])
-    plt.setp(L.texts, family='serif')
-    plt.setp(L2.texts, family='serif')
-
-    for axis in ax.flatten():
-      axis.ticklabel_format(axis='y',style='sci',scilimits=(1,1))
-      axis.tick_params(**tick_param)
-    ax[0].set_xlim(0,10)
-    ax[1].set_xlim(0.5,10)
-    ax[2].set_xlim(0.5,10)
-    ax[1].set_ylim(0,10)
-    ax[2].axhline(y=1.2, color='k', linestyle='--',label='20 % amplification')
-    ax[2].legend()
-    ax[1].grid()
-    ax[2].grid()
-    fig.suptitle('{} {} wave propagation'.format(tit[0],tit[1].upper()),fontname='serif',fontweight='bold')
-
-    plt.tight_layout(pad=2.8,h_pad=0,w_pad=0.5)
-    if 'save_dir' in kwargs:
-      if kwargs['save_dir']:
-        print('== saving ...')
-        fig.savefig(kwargs['save_dir'])
-    plt.show(block=True)
-
-  @staticmethod
-  def make_tf_figures(n_sta, r_obj, h_obj, r_tf, h_stats,
-                      colors='rbgc', key='visla_sh', **kwargs ):
-
-    set_rcParams()
-    # Time and frequency vectors
-    tvec = r_obj.tvec
-    freq = r_obj.fft_freq
-
-    fig , ax = plt.subplots(2,1,figsize=(9,7))
-    fig.subplots_adjust(bottom = 0.17)
-
-
-    #-- Plot heterogeneous
-    cycol = cycle(colors)
-
-    for cor_l in h_stats.keys() :
-      color = next(cycol)
-      ax[0].plot(tvec,h_obj[cor_l][6].velocity[:,n_sta],c=color, linewidth=1)
-
-      ax[1].plot(freq,h_stats[cor_l][n_sta,:],c=color,linestyle='-',linewidth=1, \
-                 label='')
-
-      #ax[2].plot(freq,h_ratio[cor_l][n_sta,:],c=color,linestyle='-',linewidth=1)
-
-    #-- Plot reference ---
-    ax[0].plot(tvec, r_obj.velocity[:,n_sta], c='k',linewidth=1)
-    ax[1].plot(freq, r_tf[n_sta,:], c='k',linewidth=1)
-
-    ax[0].set_ylabel('Velocity [ms$^{-1}$]')
-    ax[1].set_ylabel('Amplification')
-    #ax[2].set_ylabel(r'TF ratio ($\frac{median}{reference}$)')
-
-    ax[0].set_xlabel('Time [s]')
-    ax[1].set_xlabel('Frequency [Hz]')
-    #ax[2].set_xlabel('Frequency [Hz]')
-    #ax[2].set_ylim(0.5,1.6)
-
-    ax[0].set_title('Receiver at $x$ = {:.1f} m '.format(int(r_obj.rcoord[n_sta,0])))
-
-    ax[0].set_xlim(0,10)
-    ax[1].set_xlim(0.5,10)
-    #ax[2].set_xlim(0.5,10)
-    ax[1].set_ylim(0.2,5)
-
-    fig.suptitle(key_title[key], y=0.99)
-    #plt.tight_layout(pad=2.8,h_pad=0,w_pad=0.5)
-
-    lines = [Line2D([0],[0], color=i) for i in colors ]
-    lines.insert(0,Line2D([0],[0], color='k'))
-    labels = [LABEL[cor_l] for cor_l in h_stats.keys()] ; labels.insert(0,'Reference medium')
-    fig.legend(lines, labels, loc= (0.2,0.01), ncol=3)
-
-    if 'save_dir' in kwargs:
-      if kwargs['save_dir']:
-        print('== saving ...')
-        savefile = kwargs['save_dir'] + key + '_TF_' + str(n_sta) + '_mean.png'
-        fig.savefig(savefile)
-    plt.show(block=True)
-
-
-  @staticmethod
-  def make_pv_figures(data1, data2, xcoord, CL=[], colors=None, label=None,
-                      save_dir=None, plot_op = 'all', key='elast_sh', **kwargs):
-
-    set_rcParams()
-
-    if plot_op == 'all':
-      for cor_l in data2.keys():
-        fig = plt.figure(figsize = (8,12))
-        gs = mpl.gridspec.GridSpec(10 , 2 , wspace=0.4 , hspace=0.4, figure=fig, left=0.08, right=0.92,
-                                  bottom=0.05, top=0.95)
-        sim = 0
-        n = 0
-        for it in range(5):
-          i = n
-          j = n + 1
-
-          for k in range(2):
-
-            simu = data2[cor_l][sim]
-
-            ax1 = fig.add_subplot(gs[i,k], xticklabels=[])
-            ax2 = fig.add_subplot(gs[j,k], sharex=ax1)
-
-            divider = make_axes_locatable(ax1)
-            cax = divider.append_axes('right', size='3%', pad=0.1)
-
-            ax1.set_title('simulation {}'.format(sim+1),fontsize=14)
-
-            ax1.plot(xcoord,getattr(simu,kwargs['pv_type']),'.',c='r',markersize=2)
-
-            if (cor_l == 'nice_homo') and (key == 'visla_sh') :
-              ref_key = 'visla_homo_sh'
-              ax1.plot(xcoord,getattr(data1[ref_key],kwargs['pv_type']),'.',c='k',markersize=2)
-
-            elif (cor_l == 'nice_homo') and (key == 'visla_psv') :
-              ref_key = 'visla_homo_psv'
-              ax1.plot(xcoord,getattr(data1[ref_key],kwargs['pv_type']),'.',c='k',markersize=2)
-
-            elif (cor_l == 'nice_tabular') and (key == 'visla_psv') :
-              ref_key = 'visla_tab_psv'
-              ax1.plot(xcoord,getattr(data1[ref_key],kwargs['pv_type']),'.',c='k',markersize=2)
-
-            elif (cor_l == 'nice_tabular') and (key == 'visla_sh') :
-              ref_key = 'visla_tab_sh'
-              ax1.plot(xcoord,getattr(data1[ref_key],kwargs['pv_type']),'.',c='k',markersize=2)
-            else:
-              ax1.plot(xcoord,getattr(data1[key],kwargs['pv_type']),'.',c='k',markersize=2)
-
-            simu.plot_Vs(axis=ax2)
-
-            cax.remove()
-            ax1.set_xlim(500,1570)
-            ax1.xaxis.set_visible(False)
-            if kwargs['pv_type'] == 'pgv':
-              ax1.set_ylabel('PGV [m$s^{-1}$]', fontsize=10)
-            elif kwargs['pv_type'] == 'pga':
-              ax1.set_ylabel('PGA [m$s^{-2}$]', fontsize=10)
-
-            if it == 4 :
-              ax2.xaxis.set_visible(True)
-            else:
-              ax2.xaxis.set_visible(False)
-
-            sim += 1
-
-          n += 2
-
-        fig.suptitle(key_title[key] + ', ' + LABEL[cor_l])
-        lines = [Line2D([0],[0], color='k'), Line2D([0],[0], color='r')]
-        labels = ['Homogeneous medium', 'Heterogeneous media']
-        fig.legend(lines, labels, loc= (0.2,0), ncol=2)
-
-        if save_dir:
-          savefile = save_dir + key + '_' + cor_l + '_{}.png'.format(kwargs['pv_type'])
-          fig.savefig(savefile)
-
-
-    elif plot_op == 'stats':
-
-      stat_param = kwargs['stat_param']
-
-      fig, ax = plt.subplots(3, 2, figsize=(12,7), sharex='col')
-      fig.subplots_adjust(wspace=0.15)
-      axis = ax.flatten()
-
-      i = 0
-      for param in stat_param:
-        c = 0
-        for cor_l in CL:
-          axis[i].plot(xcoord,data2[cor_l][param],c=colors[cor_l])
-          c += 1
-        if param != 'perc':
-          axis[i].plot(xcoord,data1[key],'k')
-
-        if i == 3:
-          axis[i].xaxis.set_tick_params(labelbottom=True)
-        if param == 'perc':
-          axis[i].set_title('Normalized percentile range',fontsize=18)
-        else:
-          axis[i].set_title(param.capitalize(),fontsize=18)
-        axis[i].set_xlim(500,1570)
-
-        i += 1
-
-      # Axis labels
-      if  kwargs['pv_type'] == 'pgv':
-        fig.text(0.06,0.5, kwargs['pv_type'].upper() + ' [m$s^{-1}$]',
-                va='center',rotation='vertical', fontsize=16)
-      elif kwargs['pv_type'] == 'pga':
-        fig.text(0.05,0.5, kwargs['pv_type'].upper() + ' [m$s^{-2}$]',
-                va='center',rotation='vertical', fontsize=16)
-      fig.text(0.5,0.03, 'Horizontal profile [m]', ha='center', fontsize=16)
-      fig.suptitle(key_title[key], y=0.995)
-
-      # Legend
-      axis[-1].remove()
-      lines = []
-      labels = []
-      for cor_l in colors.keys():
-        lines.append(Line2D([0],[0], color=colors[cor_l]))
-        labels.append(LABEL[cor_l])
-      lines.insert(0,Line2D([0],[0], color='k'))
-      labels.insert(0,'Reference medium')
-      fig.legend(lines, labels, loc= (0.6,0.13))
-
-      if save_dir:
-        savefile = save_dir + key + '_stats_' + '_{}.png'.format(kwargs['pv_type'])
-        fig.savefig(savefile, bbox_inches='tight', pad_inches=0.01)
-      plt.show(block=True)
-
-
-  @staticmethod
   def compute_ratio(reference,data):
     import warnings
     warnings.filterwarnings('ignore',category=RuntimeWarning)
@@ -1748,227 +1324,6 @@ class process_sim(object):
       plt.show(block=True)
 
     pass
-
-  # -----
-  @staticmethod
-  def make_dtw_figures(data,xcoord,fig_num=1,save=False, colors='', key='visla_psv',option=None,save_dir=None):
-    set_rcParams()
-
-    if fig_num == 1:
-      for cor_l in data.keys():
-        n = 0
-        fig , ax = plt.subplots(5,2,figsize=(8,8),sharex='col')
-        for i in range(5):
-          for j in range(2):
-            ax[i,j].plot(xcoord,data[cor_l][n,:],'*')
-            ax[i,j].set_title('Simulation {:d}'.format(n+1))
-            maxv = np.abs(data[cor_l][n,:]).max()
-            nten = len(str(int(1/maxv)))
-            incr = 1/(10**nten)*2
-            ax[i,j].axhline(y=0,color='k',linestyle='--')
-            ax[i,j].set_ylim(-maxv-incr,maxv+incr)
-            n += 1
-        fig.suptitle(LABEL[cor_l])
-        fig.text(0.5,0.03, 'Horizontal profile [m]', ha='center', fontsize=13)
-        fig.text(0.04,0.5, 'Slope - 1 {:s}'.format(option), va='center',rotation='vertical', fontsize=13)
-
-        if save:
-          fig.savefig(save_dir + '{0:s}_{1:s}_{2:s}.png'.format(key,cor_l,option))
-
-      plt.show(block=True)
-    elif fig_num == 2:
-      fig, ax = plt.subplots(2,2,figsize=(12,6),sharex='col')
-      cl = 0
-      for axis in ax.flatten():
-        axis.plot(xcoord,data[CL[cl]][0],'k',label='median score')
-        axis.plot(xcoord,data[CL[cl]][1],label='median slope')
-        axis.set_title(LABEL[CL[cl]])
-        cl += 1
-        axis.legend()
-      fig.text(0.5,0.03, 'Horizontal profile [m]', ha='center', fontsize=14)
-      fig.text(0.04,0.5, r'$\vert (score|slope) - 1 \vert$', va='center',rotation='vertical', fontsize=14)
-      fig.suptitle(key_title[key])
-
-      if save:
-        fig.savefig(save_dir + '{:s}_score_slope.png'.format(key))
-      plt.show(block=True)
-
-    elif fig_num == 3:
-      fig, ax = plt.subplots(1,1,figsize=(12,7))
-      i = 0
-      for cor_l in data.keys():
-        ax.plot(xcoord,data[cor_l],c=colors[cor_l],label=LABEL[cor_l])
-        i += 1
-      ax.set_xlabel('Horizontal profile [m]',fontsize=16)
-      ax.set_ylabel('Distance',fontsize=16)
-      ax.set_title('DTW distance between reference and heterogeneous simulation',fontsize=18)
-      ax.legend()
-      fig.suptitle(key_title[key],y=0.995)
-
-      if save:
-        print('Saving ..')
-        print(save_dir)
-        fig.savefig(save_dir + '{:s}_dtw_distances.png'.format(key),bbox_inches='tight',pad_inches=0.01)
-    elif fig_num == 5:
-      fig, ax = plt.subplots(1,1,figsize=(12,7))
-
-    plt.show(block=True)
-
-  @staticmethod
-  def make_grid_figure(obj,method1,method2):
-
-    fig = plt.figure(figsize = (8,12))
-    gs = mpl.gridspec.GridSpec(15 , 2 , wspace=0.4 , hspace=0.4, figure=fig, left=0.08, right=0.92,
-                              bottom=0.05, top=0.95)
-    sim = 0
-    n = 0
-    for it in range(5):
-      i = n
-      j = n+2
-      for k in range(2):
-        simu = obj[sim]
-        ax1 = fig.add_subplot(gs[i:j,k], xticklabels=[])
-        ax2 = fig.add_subplot(gs[j,k], sharex=ax1)
-        ax1.set_title('simulation {}'.format(sim+1),fontsize=10)
-
-        ax1 = getattr(simu,method1)(axis=ax1)
-        ax2 = getattr(simu,method2)(axis=ax2,clim=[100,380])
-
-
-        if it == 4 :
-          ax2.xaxis.set_visible(True)
-        else:
-          ax2.xaxis.set_visible(False)
-
-        sim += 1
-
-      n += 3
-    return fig
-
-  @staticmethod
-  def make_grid_figure1d(data1, data2, data3, xcoord, label=None,
-                      save_dir=None, key='visla_sh', plot_param={}):
-
-    set_rcParams()
-    for cor_l in data2.keys():
-      fig = plt.figure(figsize = (8,12))
-      gs = mpl.gridspec.GridSpec(10 , 2 , wspace=0.4 , hspace=0.4, figure=fig, left=0.08, right=0.92,
-                                bottom=0.05, top=0.95)
-      sim = 0
-      n = 0
-      for it in range(5):
-        i = n
-        j = n + 1
-
-        for k in range(2):
-
-          simu = data2[cor_l][sim]
-
-          ax1 = fig.add_subplot(gs[i,k], xticklabels=[])
-          ax2 = fig.add_subplot(gs[j,k], sharex=ax1)
-
-          divider = make_axes_locatable(ax1)
-          cax = divider.append_axes('right', size='3%', pad=0.1)
-
-          ax1.set_title('simulation {}'.format(sim+1),fontsize=14)
-
-          ax1.plot(xcoord,simu,'.',c='r',markersize=2)
-
-          if (cor_l == 'nice_homo') and (key == 'visla_sh') :
-            ref_key = 'visla_homo_sh'
-            ax1.plot(xcoord,data1[ref_key],'.',c='k',markersize=2)
-
-          elif (cor_l == 'nice_homo') and (key == 'visla_psv') :
-            ref_key = 'visla_homo_psv'
-            ax1.plot(xcoord,data1[ref_key],'.',c='k',markersize=2)
-
-          elif (cor_l == 'nice_tabular') and (key == 'visla_psv') :
-            ref_key = 'visla_tab_psv'
-            ax1.plot(xcoord,data1[ref_key],'.',c='k',markersize=2)
-
-          elif (cor_l == 'nice_tabular') and (key == 'visla_sh') :
-            ref_key = 'visla_tab_sh'
-            ax1.plot(xcoord,data1[ref_key],'.',c='k',markersize=2)
-          else:
-            ax1.plot(xcoord,data1[key],'.',c='k',markersize=2)
-
-          data3[cor_l][sim].plot_Vs(axis=ax2,clim=[100,380])
-
-          cax.remove()
-          ax1.set_xlim(500,1570)
-          ax1.xaxis.set_visible(False)
-
-          ax1.set_ylabel(plot_param['xlabel'], fontsize=10)
-          ax1.ticklabel_format(axis='y',style='sci',scilimits=(0,0))
-
-
-          if it == 4 :
-            ax2.xaxis.set_visible(True)
-          else:
-            ax2.xaxis.set_visible(False)
-
-          sim += 1
-
-        n += 2
-
-      fig.suptitle(key_title[key] + ', ' + LABEL[cor_l], y=0.985)
-      lines = [Line2D([0],[0], color='k'), Line2D([0],[0], color='r')]
-      labels = ['Homogeneous medium', 'Heterogeneous media']
-      fig.legend(lines, labels, loc= (0.2,0), ncol=2)
-
-      if save_dir:
-        savefile = save_dir + key + '_' + cor_l + '_{}.png'.format(plot_param['plot_type'])
-        fig.savefig(savefile)
-
-    return
-
-  @staticmethod
-  def make_stats_fig1d(data1,data2,xcoord,CL,colors=None,save_dir=None,plot_param={},key='visla_sh'):
-
-    stats_keys = ['mean','min','max','median','perc']
-    set_rcParams()
-    fig, ax = plt.subplots(3, 2, figsize=(12,7), sharex='col')
-    fig.subplots_adjust(wspace=0.1)
-    axis = ax.flatten()
-
-    i = 0
-    for param in stats_keys:
-      c = 0
-      for cor_l in CL:
-        axis[i].plot(xcoord,data2[cor_l][param],c=colors[c])
-        c += 1
-      if param != 'perc':
-        axis[i].plot(xcoord,data1[key],'k')
-
-      if i == 3:
-        axis[i].xaxis.set_tick_params(labelbottom=True)
-      if param == 'perc':
-        axis[i].set_title('Normalized percentile range',fontsize=14)
-      else:
-        axis[i].set_title(param.capitalize(),fontsize=14)
-      axis[i].set_xlim(500,1570)
-      axis[i].ticklabel_format(axis='y',style='sci',scilimits=(0,0))
-
-      i += 1
-
-    # Axis labels
-    fig.text(0.08,0.5, plot_param['xlabel'],
-              va='center',rotation='vertical', fontsize=14)
-    fig.text(0.5,0.03, 'Horizontal profile [m]', ha='center', fontsize=14)
-    fig.suptitle(key_title[key],y=0.985)
-
-    # Legend
-    axis[-1].remove()
-    lines = [Line2D([0],[0], color=i) for i in colors ]
-    lines.insert(0,Line2D([0],[0], color='k'))
-    labels = [LABEL[cor_l] for cor_l in CL] ; labels.insert(0,'Reference medium')
-    fig.legend(lines, labels, loc= (0.6,0.15))
-
-    if save_dir:
-      savefile = save_dir + key + '_stats_' + '_{}.png'.format(plot_param['plot_type'])
-      fig.savefig(savefile)
-
-    return
 
   @staticmethod
   def plot_psa_freq(data,fig,ax,xcoord):

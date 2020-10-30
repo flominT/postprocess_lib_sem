@@ -91,10 +91,11 @@ def wiggle_input_check(data, tt, xx, sf, norm, verbose):
 
     # Rescale data by trace_spacing and strech_factor
     data_max_std = norm or np.max(np.std(data, axis=0))
-    #data_max_std = 0.011  # Original value SH
+    #data_max_std = 0.002  # Original value SH
     #data_max_std = 0.001
     #data_max_std = 0.008 # Original value PSV
     data = data / data_max_std * ts * sf
+    
     return data, tt, xx, ts
 
 

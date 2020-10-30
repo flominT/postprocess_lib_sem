@@ -200,7 +200,7 @@ class sem2dpack(object):
       field = np.fromfile(f,np.float32)
     return field
 
-  def read_seismo(self,filter_s=False,freqs=None,scale=False,verbose=False):
+  def read_seismo(self,filter_s=False,freqs=None,scale=None,verbose=False):
     """
        Reads the seismograms or traces the simulations
 
@@ -245,7 +245,13 @@ class sem2dpack(object):
           print('*** Filtering between {} and {} Hz'.format(freqs[0],freqs[1]))
         self.velocity = self.filter_seismo(self.velocity,freqs=freqs,ftype='bandpass',dt=self.dt)
         self.velocity_z = self.filter_seismo(self.velocity_z,freqs=freqs,ftype='bandpass',dt=self.dt)
+
+        if scale:
+          self.velocity *= scale
+          self.velocity_z *= scale
+
         return self.velocity
+
     elif self._component == 'y': # SH case
       filename_y   = self.directory + 'Uy_sem2d.dat'
       try :
@@ -269,10 +275,15 @@ class sem2dpack(object):
         if verbose:
           print('*** Filtering between {} and {} Hz'.format(freqs[0],freqs[1]))
         self.velocity = self.filter_seismo(self.velocity,freqs=freqs,ftype='bandpass',dt=self.dt)
+
+        if scale:
+          self.velocity *= scale
+
         return self.velocity
 
     if scale:
-      self.velocity /= scale
+      self.velocity *= scale
+
     return self.velocity
 
   def read_stress_strain(self):
@@ -422,7 +433,7 @@ class sem2dpack(object):
 
     return y
 
-  def animate(self,savefile=None,cmap='jet',interval=1500,repeat_delay=1000,duration=1, background=True):
+  def animate(self,savefile=None,cmap='seismic',interval=1500,repeat_delay=1000,duration=1, background=True):
     """
     Animates SEM2DPACK snapshots
     """
@@ -434,7 +445,7 @@ class sem2dpack(object):
     xcoord = coord[:,0]
     zcoord = coord[:,1]
     frames = sorted(glob.iglob(self.directory + filename))
-    nframe = int(len(frames)/4)
+    nframe = int(len(frames)/2)
     ext = [min(xcoord), max(xcoord), -1 * max(zcoord), min(zcoord)]
     ims = []
     field =[]
@@ -452,31 +463,31 @@ class sem2dpack(object):
 
     fig, ax = plt.subplots(figsize=(10,4))
 
-    if background:
-      vsfile = self.directory + 'Cs_gll_sem2d.tab'
-      with open(vsfile,'r') as v:
-        vs_int = pd.read_csv(v,sep='\s+',names=['vs','x','z'])
-      ax.scatter(vs_int['x'], vs_int['z'], c=vs_int['vs'], s=20, cmap='jet')
-
     Writer = anim.writers['ffmpeg']
-    writer = Writer(fps=2,metadata=dict(artist='Flomin'))
-    vmin , vmax = -5e-10, 5e-10
+    writer = Writer(fps=1,metadata=dict(artist='Flomin'))
+    #vmin , vmax = -5e-10, 5e-10
 
     for i in range(nframe):
       frametitle = 'Snapshot at time = {:.1f} secs'.format((i/nframe)*duration)
       ttl = ax.text(0.5, 1.01, frametitle, ha='center', \
                      va='bottom', transform=ax.transAxes,fontsize=18)
       im = ax.imshow(output[i],extent=ext,cmap=cmap,\
-                      aspect="auto",animated=True,vmin=vmin,vmax=vmax)
+                      aspect="auto",animated=True, origin='lower')#,vmin=vmin,vmax=vmax)
 
-      im.set_clim(vmin,vmax)
+      #im.set_clim(vmin,vmax)
       ims.append([im,ttl])
       ims.append([im,])
 
     ani = anim.ArtistAnimation(fig,ims,interval=interval,blit=False,
                               repeat_delay=repeat_delay)
 
-    ax.set_xlabel('Length [m]')
+    if background:
+      vsfile = self.directory + 'Cs_gll_sem2d.tab'
+      with open(vsfile,'r') as v:
+        vs_int = pd.read_csv(v,sep='\s+',names=['vs','x','z'])
+      ax.scatter(vs_int['x'], vs_int['z'], c=vs_int['vs'], s=20, cmap='jet', zorder=0)
+
+    ax.set_xlabel('Distance along the profile [m]')
     ax.set_ylabel('Depth [m]')
     ax.minorticks_off()
     ax.invert_yaxis()
@@ -563,7 +574,7 @@ class sem2dpack(object):
     plt.show()
 
 
-  def compute_tf(self, nsurface, blim, smooth=True, filt=False,
+  def compute_tf(self, nsurface, blim, smooth=True, filt=False, freqs=None,
                  saveBr=False, useBr=False, brockName=None,bd=40):
     """
      Computes the 2D transfer function of a sedimentary basin.
@@ -591,7 +602,7 @@ class sem2dpack(object):
       if filt:
         self.read_seismo(filter_s=True)
       else:
-        self.read_seismo(filter_s=False)
+        self.read_seismo(filter_s=False,freqs=freqs)
 
     # Get rock station x-coordinates
     nt, nx = self.velocity.shape
@@ -606,7 +617,7 @@ class sem2dpack(object):
     if filt :
       self.compute_fft()
     else:
-      self.compute_fft(filt=False)
+      self.compute_fft(filt=False,freqs=freqs)
 
     if not useBr :
 
@@ -808,7 +819,7 @@ class sem2dpack(object):
 
     return filtered_s
 
-  def plot_Vs(self,vs_br=1000,cmap='jet',axis=None,clim=None, size='2%'):
+  def plot_Vs(self,vs_br=1000,cmap='jet',axis=None, clim=None, size='2%', s=2, divide=True):
     """
        Makes a scatter plot of the velocities
 
@@ -825,26 +836,33 @@ class sem2dpack(object):
     vs_int = tmp.drop(tmp[tmp['vs']==vs_br].index)
     self.gll_vs = vs_int
     min_vs , max_vs = np.min(vs_int['vs']), np.max(vs_int['vs'])
-
+    
     if axis :
-      divider = make_axes_locatable(axis)
-      cax     = divider.append_axes('right', size=size, pad=0.2)
-      x = self.rcoord[:,0]
-      #axis.fill_between(x,np.ones(x.shape)*-34,y[7,:],facecolor='#b26400')
-      im = axis.scatter(vs_int['x'], vs_int['z'], c=vs_int['vs'], s=20, cmap='jet')
-      c  = plt.colorbar(im, cax=cax, fraction=0.046, pad=0.06, shrink=0.4)
-      if clim: im.set_clim(*clim)
-      c.ax.tick_params(labelsize=8)
-      c.set_label('Velocity [$ms^{-1}$]')
-      axis.set_xlabel('Horizontal profile [m]')
-      axis.set_ylabel('Depth [m]')
-
-      return axis
+      if divide:
+        divider = make_axes_locatable(axis)
+        cax     = divider.append_axes('right', size=size, pad=0.2)
+        x = self.rcoord[:,0]
+        #axis.fill_between(x,np.ones(x.shape)*-34,y[7,:],facecolor='#b26400')
+        im = axis.scatter(vs_int['x'], vs_int['z'], c=vs_int['vs'], s=s, cmap='jet')
+        c  = plt.colorbar(im, cax=cax, fraction=0.046, pad=0.06, shrink=0.4)
+        if clim: im.set_clim(*clim)
+        c.ax.tick_params(labelsize=10)
+        c.ax.minorticks_off()
+        c.set_label('Velocity [$ms^{-1}$]', fontsize=12, labelpad=8)
+        axis.tick_params(axis='both', which='major', labelsize=12)
+        axis.set_xlabel('Distance along the profile [m]', fontsize=14)
+        axis.set_ylabel('Depth [m]', fontsize=14)
+        return axis
+      else:
+        im = axis.scatter(vs_int['x'], vs_int['z'], c=vs_int['vs'], s=s, cmap='jet')
+        axis.tick_params(axis='both', which='major', labelsize=12)
+        if clim: im.set_clim(*clim)
+        return axis, im
 
     else:
       # Figure
       fig , ax = plt.subplots(figsize=(12,4))
-      ax.scatter(vs_int['x'], vs_int['z'], c=vs_int['vs'], s=20, cmap=cmap)
+      ax.scatter(vs_int['x'], vs_int['z'], c=vs_int['vs'], s=s, cmap=cmap)
       plt.show(block=True)
 
     return self.gll_vs
@@ -933,6 +951,7 @@ class sem2dpack(object):
   def compute_pv(self,op='pgv',component=None,freqs=None,n_surf=None):
     component = component or self._component
     n_surf = n_surf or self.nsta
+    freqs  = freqs or self._freqs
     if not hasattr(self,'velocity'):
       print("Reading velocity traces")
       veloc = self.read_seismo(filter_s=True,freqs=freqs)[:,:n_surf]
@@ -953,6 +972,40 @@ class sem2dpack(object):
       self.pga = maxs
 
       return self.pga
+
+  def compute_ai(self,atype='ABI',component=None,n_surf=None,freqs=None):
+    """
+    atype = AI (arias intensity) or ABI (Arias based intensity)
+    """
+    component = component or self._component
+    n_surf    = n_surf or self.nsta
+    freqs     = freqs or self._freqs
+
+    if not hasattr(self,'velocity'):
+      print("Reading velocity traces")
+      veloc = self.read_seismo(filter_s=True,freqs=freqs)[:,:n_surf]
+    else:
+      veloc = self.velocity[:,:n_surf]
+
+    dt   = self.dt
+
+    if atype == 'AI':
+      dvdx = np.gradient(veloc,dt,axis=0) # acceleration
+      g    = 9.8
+      a2   = dvdx**2
+      self.ai     = (np.pi / (2*g)) * np.sum(a2,axis=0)
+      self.cum_ai = (np.pi / (2*g)) * np.cumsum(a2,axis=0)
+    elif atype == 'ABI':
+      self.ai     = np.sum(veloc**2,axis=0)
+      self.cum_ai = np.cumsum(veloc**2,axis=0)
+    
+    percent_ai  = (self.cum_ai / self.ai) * 1e2
+
+    perc5       =  np.abs(percent_ai - 5).argmin(axis=0)
+    perc95      =  np.abs(percent_ai - 95).argmin(axis=0)
+    self.duration    = self.tvec[perc95] - self.tvec[perc5]
+
+    return self.duration
 
   def peak_response(self,T,dr):
     """
@@ -1331,6 +1384,6 @@ def test_res_fig(directory):
 if __name__ == '__main__':
   dir2 = '/Users/flomin/Desktop/thesis/simulations/Nice/plane_wave/elast_psv/'
   obj2 = sem2dpack(dir2,component='x')
-  obj2.pairwise_dtw(sta_range=[115,125])
+  obj2.compute_ai()
 
 
